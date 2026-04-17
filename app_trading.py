@@ -14,8 +14,7 @@ def load_data(file):
     if os.path.exists(file):
         with open(file, "r") as f:
             try:
-                data = json.load(f)
-                return data
+                return json.load(f)
             except:
                 return [] if "history" in file else {}
     return [] if "history" in file else {}
@@ -24,199 +23,160 @@ def save_data(file, data):
     with open(file, "w") as f:
         json.dump(data, f, indent=4)
 
-# --- ARCHIVAGE DÉTAILLÉ ---
+# --- ARCHIVAGE ---
 def archive_position(symbol, data, exit_price, reason):
     history = load_data(HIST_FILE)
     pnl = ((exit_price - data['entry']) / data['entry']) * 100
-    
     history.append({
         "SYMBOLE": symbol,
-        "OUVERTURE": data.get('time_full', data.get('time', "N/A")),
+        "OUVERTURE": data.get('time_full', "N/A"),
         "FERMETURE": datetime.now().strftime("%d/%m %H:%M:%S"),
         "PNL %": f"{pnl:+.2f}%",
         "RAISON": reason,
         "STYLE": data['style'],
         "ENTREE": f"{data['entry']:.4f}",
-        "SORTIE": f"{exit_price:.4f}",
-        "pnl": round(pnl, 2),
-        "date": datetime.now().strftime("%Y-%m-%d")
+        "SORTIE": f"{exit_price:.4f}"
     })
     save_data(HIST_FILE, history)
     return pnl
 
-# --- CONFIGURATION INITIALE ---
-st.set_page_config(page_title="SMC PERFORMANCE V7.7 (KUCOIN)", layout="wide")
+# --- CONFIGURATION ---
+st.set_page_config(page_title="SMC V7.7 KUCOIN STABLE", layout="wide")
 if 'test_positions' not in st.session_state:
     st.session_state['test_positions'] = load_data(DB_FILE)
 
-# REMPLACEMENT DE BINANCE PAR KUCOIN POUR STREAMLIT CLOUD
 exchange = ccxt.kucoin({'timeout': 30000, 'enableRateLimit': True})
 
-# --- MOTEUR D'ANALYSE ---
+# --- MOTEUR D'ANALYSE (CORRIGÉ) ---
 def get_market_analysis(symbol, mode_choisi):
     try:
-        symbol = symbol.upper().strip()
-        # KuCoin utilise aussi le format SYMBOL/USDT
-        if not symbol.endswith('/USDT'):
-            symbol = f"{symbol}/USDT"
-            
         tf = "5m" if "SCALPING" in mode_choisi or "RANGE" in mode_choisi else "1h"
         bars = exchange.fetch_ohlcv(symbol, timeframe=tf, limit=100)
+        if not bars or len(bars) < 50: return None
+        
         df = pd.DataFrame(bars, columns=['t', 'o', 'h', 'l', 'c', 'v'])
-        adx = ta.adx(df['h'], df['l'], df['c'], length=14)['ADX_14'].iloc[-1]
+        
+        # Calcul ADX sécurisé
+        adx_df = ta.adx(df['h'], df['l'], df['c'], length=14)
+        if adx_df is None or adx_df.empty: return None
+        adx = adx_df['ADX_14'].iloc[-1]
+        
+        # Calcul BB & ATR
         bb = ta.bbands(df['c'], length=20, std=2)
-        prix = df['c'].iloc[-1]
         atr = ta.atr(df['h'], df['l'], df['c'], length=14).iloc[-1]
+        prix = df['c'].iloc[-1]
+        
         return {
-            "symbol": symbol, "prix": prix, "adx": adx, "is_range": adx < 22, "atr": atr,
+            "symbol": symbol, "prix": prix, "adx": adx, 
+            "is_range": adx < 25, "atr": atr,
             "upper": bb['BBU_20_2.0'].iloc[-1], "lower": bb['BBL_20_2.0'].iloc[-1]
         }
     except: return None
 
-# --- STYLE INTERFACE ---
+# --- STYLE CSS ---
 st.markdown("""
     <style>
-    .main { background-color: #000000; color: #00FF41; font-family: 'Consolas', monospace; }
-    .stMetric { background-color: #0a0a0a; border: 1px solid #00FF41; padding: 15px; border-radius: 10px; }
-    .stTabs [data-baseweb="tab"] { color: #00FF41; font-weight: bold; font-size: 18px; }
-    .stButton>button { border: 1px solid #00FF41; background-color: #050505; color: #00FF41; width: 100%; }
-    .stButton>button:hover { background-color: #00FF41; color: black; }
+    .main { background-color: #000000; color: #00FF41; }
+    .stMetric { background-color: #0a0a0a; border: 1px solid #00FF41; padding: 10px; border-radius: 5px; }
+    .stButton>button { border: 1px solid #00FF41; background: black; color: #00FF41; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- INTERFACE PRINCIPALE ---
 st.title("📟 SMC PERFORMANCE V7.7")
 
-# Ligne de test de connexion (Indispensable pour le Cloud)
-try:
-    test_p = exchange.fetch_ticker('BTC/USDT')['last']
-    st.success(f"✅ Connexion KUCOIN OK | BTC: {test_p}$")
-except Exception as e:
-    st.error(f"❌ Erreur de connexion API : {e}")
-
-tab_scan, tab_search, tab_journal = st.tabs(["🔎 SCANNER INTELLIGENT", "🔍 RECHERCHE PAIRE", "📈 JOURNAL & PERFORMANCE"])
+# --- SCANNER INTELLIGENT (OPTIMISÉ POUR KUCOIN) ---
+tab_scan, tab_search, tab_journal = st.tabs(["🔎 SCANNER", "🔍 RECHERCHE", "📈 JOURNAL"])
 
 with st.sidebar:
-    st.header("⚙️ CONFIGURATION")
-    mode_actuel = st.selectbox("CHOISIR STYLE", ["SCALPING (5m)", "RANGE MODE (Rebond)", "DAY TRADING (1h)", "SWING (4h)"])
-    if st.button("🔄 ACTUALISER TOUT"): st.rerun()
+    mode_actuel = st.selectbox("STYLE", ["SCALPING (5m)", "RANGE MODE (Rebond)", "DAY TRADING (1h)"])
+    if st.button("🔄 REFRESH"): st.rerun()
 
-# --- ONGLET 1 : SCANNER ---
 with tab_scan:
     col_list, col_focus = st.columns([1, 2])
+    
     with col_list:
-        if st.button(f"LANCER SCAN {mode_actuel}"):
-            with st.status("Analyse des flux KuCoin..."):
+        if st.button("🚀 LANCER SCAN"):
+            with st.status("Filtrage KuCoin..."):
                 tickers = exchange.fetch_tickers()
-                # Filtrage des paires USDT sur KuCoin
-                pairs = sorted([s for s in tickers if s.endswith('/USDT')], 
-                              key=lambda x: tickers[x].get('quoteVolume', 0) if tickers[x].get('quoteVolume') else 0, reverse=True)[:35]
-                valid_results = []
-                for p in pairs:
-                    ana = get_market_analysis(p, mode_actuel)
-                    if ana and (("RANGE" in mode_actuel and ana['is_range']) or ("RANGE" not in mode_actuel and not ana['is_range'])):
-                        valid_results.append(p)
-                st.session_state['scan_res'] = valid_results
+                # On filtre les paires USDT et on s'assure que le volume existe
+                potential = []
+                for s, t in tickers.items():
+                    if s.endswith('/USDT'):
+                        vol = t.get('quoteVolume') or t.get('info', {}).get('volValue', 0)
+                        if vol: potential.append({'s': s, 'v': float(vol)})
+                
+                # Top 40 par volume pour éviter de saturer l'API
+                top_pairs = sorted(potential, key=lambda x: x['v'], reverse=True)[:40]
+                
+                scan_results = []
+                for p_item in top_pairs:
+                    ana = get_market_analysis(p_item['s'], mode_actuel)
+                    if ana:
+                        # Logique de détection
+                        is_range_mode = "RANGE" in mode_actuel
+                        if (is_range_mode and ana['is_range']) or (not is_range_mode and not ana['is_range']):
+                            scan_results.append(p_item['s'])
+                
+                st.session_state['scan_res'] = scan_results
+
         if 'scan_res' in st.session_state:
+            if not st.session_state['scan_res']:
+                st.info("Aucun signal trouvé. Essayez un autre mode.")
             for p in st.session_state['scan_res']:
-                if st.button(f"🎯 {p}", key=f"btn_{p}"): st.session_state['active_p'] = p
+                if st.button(f"🎯 {p}"): st.session_state['active_p'] = p
 
     with col_focus:
         if 'active_p' in st.session_state:
-            p = st.session_state['active_p']
-            res = get_market_analysis(p, mode_actuel)
+            res = get_market_analysis(st.session_state['active_p'], mode_actuel)
             if res:
-                st.header(f"💼 Analyse : {p}")
+                st.subheader(f"Analyse : {res['symbol']}")
                 entry = res['lower'] if "RANGE" in mode_actuel else res['prix']
                 tp = res['upper'] if "RANGE" in mode_actuel else entry + (res['atr'] * 4.5)
                 sl = entry - (res['atr'] * 2.0)
-                tp_pct, sl_pct = ((tp - entry) / entry) * 100, ((sl - entry) / entry) * 100
-
-                st_c1, st_c2, st_c3 = st.columns(3)
-                st_c1.error(f"SL: ({sl_pct:.2f}%) {sl:,.4f}")
-                st_c2.warning(f"ENTREE: {entry:,.4f}")
-                st_c3.success(f"TP: (+{tp_pct:.2f}%) {tp:,.4f}")
-
-                if st.button("🚀 VALIDER ET SURVEILLER"):
-                    st.session_state['test_positions'][p] = {
-                        "entry": entry, "tp": tp, "sl": sl, "tp_pct": tp_pct, "sl_pct": sl_pct,
-                        "style": mode_actuel, "time_full": datetime.now().strftime("%d/%m %H:%M:%S")
+                
+                c1, c2, c3 = st.columns(3)
+                c1.error(f"SL: {sl:,.4f}")
+                c2.warning(f"ENTRY: {entry:,.4f}")
+                c3.success(f"TP: {tp:,.4f}")
+                
+                if st.button("🚀 AJOUTER AU JOURNAL"):
+                    st.session_state['test_positions'][res['symbol']] = {
+                        "entry": entry, "tp": tp, "sl": sl, "style": mode_actuel,
+                        "time_full": datetime.now().strftime("%d/%m %H:%M:%S")
                     }
                     save_data(DB_FILE, st.session_state['test_positions'])
-                    st.rerun()
+                    st.success("Position ajoutée !")
 
-# --- ONGLET 2 : RECHERCHE MANUELLE ---
+# --- RECHERCHE MANUELLE ---
 with tab_search:
-    st.subheader("🔍 Analyser une paire spécifique (KuCoin)")
-    pair_input = st.text_input("Ex: BTC, ETH, KCS", key="manual_search").upper().strip()
-    
-    if pair_input:
-        analysis = get_market_analysis(pair_input, mode_actuel)
-        if analysis:
-            p_full = analysis['symbol']
-            st.header(f"💼 Analyse : {p_full}")
-            
-            entry_s = analysis['lower'] if "RANGE" in mode_actuel else analysis['prix']
-            tp_s = analysis['upper'] if "RANGE" in mode_actuel else entry_s + (analysis['atr'] * 4.5)
-            sl_s = entry_s - (analysis['atr'] * 2.0)
-            tp_p, sl_p = ((tp_s - entry_s) / entry_s) * 100, ((sl_s - entry_s) / entry_s) * 100
-
-            m1, m2, m3 = st.columns(3)
-            m1.metric("PRIX LIVE", f"{analysis['prix']:.6f}")
-            m2.metric("ADX", f"{analysis['adx']:.1f}", "Range" if analysis['is_range'] else "Trend")
-            m3.metric("ATR", f"{analysis['atr']:.6f}")
-
-            st.write("---")
-            sc1, sc2, sc3 = st.columns(3)
-            sc1.error(f"SL: ({sl_p:.2f}%) {sl_s:,.4f}")
-            sc2.warning(f"ENTRÉE: {entry_s:,.4f}")
-            sc3.success(f"TP: (+{tp_p:.2f}%) {tp_s:,.4f}")
-
-            if st.button(f"🚀 SURVEILLER {p_full}", key="btn_add_manual"):
-                st.session_state['test_positions'][p_full] = {
-                    "entry": entry_s, "tp": tp_s, "sl": sl_s, "tp_pct": tp_p, "sl_pct": sl_p,
+    sym = st.text_input("Symbole (ex: SOL, PEPE)").upper()
+    if sym:
+        ana = get_market_analysis(sym, mode_actuel)
+        if ana:
+            st.write(f"Prix: {ana['prix']} | ADX: {ana['adx']:.1f}")
+            if st.button(f"Suivre {ana['symbol']}"):
+                st.session_state['test_positions'][ana['symbol']] = {
+                    "entry": ana['prix'], "tp": ana['prix']*1.05, "sl": ana['prix']*0.98,
                     "style": mode_actuel, "time_full": datetime.now().strftime("%d/%m %H:%M:%S")
                 }
                 save_data(DB_FILE, st.session_state['test_positions'])
-                st.rerun()
-        else:
-            st.error("Paire introuvable sur KuCoin.")
 
-# --- ONGLET 3 : JOURNAL & PERFORMANCE ---
+# --- JOURNAL ---
 with tab_journal:
     history = load_data(HIST_FILE)
-    today = datetime.now().strftime("%d/%m")
-    
-    daily_pnl = 0.0
-    for h in history:
-        if h.get('FERMETURE', '').startswith(today):
-            pnl_str = h.get('PNL %', '0').replace('+', '').replace('%', '').strip()
-            try: daily_pnl += float(pnl_str)
-            except: continue
-    
-    st.metric("PROFIT DU JOUR", f"{daily_pnl:+.2f}%", delta=f"{daily_pnl - 5:.2f}% vs Objectif 5%")
-    st.progress(min(max(daily_pnl/5, 0.0), 1.0), text=f"Progression : {daily_pnl:.2f}% / 5%")
-    st.write("---")
-
     if st.session_state['test_positions']:
-        for p, data in list(st.session_state['test_positions'].items()):
+        for p, d in list(st.session_state['test_positions'].items()):
             try:
-                ticker = exchange.fetch_ticker(p)
-                cur_p = ticker['last']
-                prog = ((cur_p - data['entry']) / data['entry']) * 100
-                if cur_p >= data['tp']: archive_position(p, data, data['tp'], "TP ✅"); del st.session_state['test_positions'][p]; save_data(DB_FILE, st.session_state['test_positions']); st.rerun()
-                elif cur_p <= data['sl']: archive_position(p, data, data['sl'], "SL ❌"); del st.session_state['test_positions'][p]; save_data(DB_FILE, st.session_state['test_positions']); st.rerun()
-
-                with st.expander(f"📊 {p} | {prog:+.2f}%", expanded=True):
-                    c1, c2, c3 = st.columns([2, 2, 1])
-                    c1.write(f"Ouvert à: {data.get('time_full', 'N/A')}")
-                    c2.metric("PRIX LIVE", f"{cur_p:,.4f}", f"{prog:+.2f}%")
-                    if c3.button("💰 VENDRE", key=f"sell_{p}"): archive_position(p, data, cur_p, "MANUEL"); del st.session_state['test_positions'][p]; save_data(DB_FILE, st.session_state['test_positions']); st.rerun()
+                curr = exchange.fetch_ticker(p)['last']
+                pnl = ((curr - d['entry']) / d['entry']) * 100
+                st.write(f"**{p}**: {pnl:+.2f}% (Prix: {curr})")
+                if st.button(f"Fermer {p}"):
+                    archive_position(p, d, curr, "MANUEL")
+                    del st.session_state['test_positions'][p]
+                    save_data(DB_FILE, st.session_state['test_positions'])
+                    st.rerun()
             except: continue
-
-    with st.expander("📜 VOIR L'HISTORIQUE DÉTAILLÉ", expanded=False):
-        if history:
-            df_hist = pd.DataFrame(history)
-            cols_ordre = ["SYMBOLE", "OUVERTURE", "FERMETURE", "ENTREE", "SORTIE", "PNL %", "RAISON", "STYLE"]
-            cols_valides = [c for c in cols_ordre if c in df_hist.columns]
-            st.dataframe(df_hist[cols_valides].iloc[::-1], use_container_width=True)
+    
+    if history:
+        st.write("---")
+        st.dataframe(pd.DataFrame(history)[::-1])
