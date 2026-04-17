@@ -1,5 +1,6 @@
 streamlit
+pandas
 ccxt
 google-generativeai
-pandas==2.1.4
-pandas-ta
+https://github.com/twopirllc/pandas-ta/archive/master.zip
+
