@@ -1,0 +1,44 @@
+[
+    {
+        "SYMBOLE": "DOGE/USDT",
+        "OUVERTURE": "17/04 11:47:00",
+        "FERMETURE": "17/04 13:47:00",
+        "PNL %": "+1.37%",
+        "RAISON": "TP \u2705",
+        "STYLE": "SCALPING (5m)",
+        "ENTREE": "0.0978",
+        "SORTIE": "0.0991"
+    },
+    {
+        "SYMBOLE": "TAO/USDT",
+        "OUVERTURE": "17/04 11:49:00",
+        "FERMETURE": "17/04 13:47:00",
+        "PNL %": "+2.21%",
+        "RAISON": "TP \u2705",
+        "STYLE": "SCALPING (5m)",
+        "ENTREE": "248.1000",
+        "SORTIE": "253.5949"
+    },
+    {
+        "SYMBOLE": "PNUT/USDT",
+        "OUVERTURE": "17/04 11:49:00",
+        "FERMETURE": "17/04 14:03:42",
+        "PNL %": "+6.37%",
+        "RAISON": "TP \u2705",
+        "STYLE": "SCALPING (5m)",
+        "ENTREE": "0.0643",
+        "SORTIE": "0.0684"
+    },
+    {
+        "SYMBOLE": "MOVR/USDT",
+        "OUVERTURE": "17/04 11:48:00",
+        "FERMETURE": "17/04 14:57:12",
+        "PNL %": "+30.93%",
+        "RAISON": "TP \u2705",
+        "STYLE": "SCALPING (5m)",
+        "ENTREE": "3.0670",
+        "SORTIE": "4.0157",
+        "pnl": 30.93,
+        "date": "2026-04-17"
+    }
+]
