@@ -45,17 +45,18 @@ def archive_position(symbol, data, exit_price, reason):
     return pnl
 
 # --- CONFIGURATION INITIALE ---
-st.set_page_config(page_title="SMC PERFORMANCE V7.7", layout="wide")
+st.set_page_config(page_title="SMC PERFORMANCE V7.7 (KUCOIN)", layout="wide")
 if 'test_positions' not in st.session_state:
     st.session_state['test_positions'] = load_data(DB_FILE)
 
-exchange = ccxt.binance({'timeout': 30000, 'enableRateLimit': True})
+# REMPLACEMENT DE BINANCE PAR KUCOIN POUR STREAMLIT CLOUD
+exchange = ccxt.kucoin({'timeout': 30000, 'enableRateLimit': True})
 
 # --- MOTEUR D'ANALYSE ---
 def get_market_analysis(symbol, mode_choisi):
     try:
-        # Normalisation pour la recherche manuelle
         symbol = symbol.upper().strip()
+        # KuCoin utilise aussi le format SYMBOL/USDT
         if not symbol.endswith('/USDT'):
             symbol = f"{symbol}/USDT"
             
@@ -86,6 +87,13 @@ st.markdown("""
 # --- INTERFACE PRINCIPALE ---
 st.title("📟 SMC PERFORMANCE V7.7")
 
+# Ligne de test de connexion (Indispensable pour le Cloud)
+try:
+    test_p = exchange.fetch_ticker('BTC/USDT')['last']
+    st.success(f"✅ Connexion KUCOIN OK | BTC: {test_p}$")
+except Exception as e:
+    st.error(f"❌ Erreur de connexion API : {e}")
+
 tab_scan, tab_search, tab_journal = st.tabs(["🔎 SCANNER INTELLIGENT", "🔍 RECHERCHE PAIRE", "📈 JOURNAL & PERFORMANCE"])
 
 with st.sidebar:
@@ -98,10 +106,11 @@ with tab_scan:
     col_list, col_focus = st.columns([1, 2])
     with col_list:
         if st.button(f"LANCER SCAN {mode_actuel}"):
-            with st.status("Analyse des flux..."):
+            with st.status("Analyse des flux KuCoin..."):
                 tickers = exchange.fetch_tickers()
-                pairs = sorted([s for s in tickers if s.endswith('/USDT') and 'UP/' not in s], 
-                              key=lambda x: tickers[x]['quoteVolume'], reverse=True)[:35]
+                # Filtrage des paires USDT sur KuCoin
+                pairs = sorted([s for s in tickers if s.endswith('/USDT')], 
+                              key=lambda x: tickers[x].get('quoteVolume', 0) if tickers[x].get('quoteVolume') else 0, reverse=True)[:35]
                 valid_results = []
                 for p in pairs:
                     ana = get_market_analysis(p, mode_actuel)
@@ -138,29 +147,26 @@ with tab_scan:
 
 # --- ONGLET 2 : RECHERCHE MANUELLE ---
 with tab_search:
-    st.subheader("🔍 Analyser une paire spécifique")
-    pair_to_search = st.text_input("Entrez le nom (ex: BTC, PEPE, SOL)", key="search_input").upper().strip()
+    st.subheader("🔍 Analyser une paire spécifique (KuCoin)")
+    pair_input = st.text_input("Ex: BTC, ETH, KCS", key="manual_search").upper().strip()
     
-    if pair_to_search:
-        analysis = get_market_analysis(pair_to_search, mode_actuel)
+    if pair_input:
+        analysis = get_market_analysis(pair_input, mode_actuel)
         if analysis:
             p_full = analysis['symbol']
             st.header(f"💼 Analyse : {p_full}")
             
-            # Calcul des niveaux
             entry_s = analysis['lower'] if "RANGE" in mode_actuel else analysis['prix']
             tp_s = analysis['upper'] if "RANGE" in mode_actuel else entry_s + (analysis['atr'] * 4.5)
             sl_s = entry_s - (analysis['atr'] * 2.0)
             tp_p, sl_p = ((tp_s - entry_s) / entry_s) * 100, ((sl_s - entry_s) / entry_s) * 100
 
-            # Métriques
             m1, m2, m3 = st.columns(3)
             m1.metric("PRIX LIVE", f"{analysis['prix']:.6f}")
             m2.metric("ADX", f"{analysis['adx']:.1f}", "Range" if analysis['is_range'] else "Trend")
             m3.metric("ATR", f"{analysis['atr']:.6f}")
 
             st.write("---")
-            # Paramètres de trade
             sc1, sc2, sc3 = st.columns(3)
             sc1.error(f"SL: ({sl_p:.2f}%) {sl_s:,.4f}")
             sc2.warning(f"ENTRÉE: {entry_s:,.4f}")
@@ -174,7 +180,7 @@ with tab_search:
                 save_data(DB_FILE, st.session_state['test_positions'])
                 st.rerun()
         else:
-            st.error("Paire introuvable sur Binance. Vérifiez le nom.")
+            st.error("Paire introuvable sur KuCoin.")
 
 # --- ONGLET 3 : JOURNAL & PERFORMANCE ---
 with tab_journal:
@@ -185,10 +191,8 @@ with tab_journal:
     for h in history:
         if h.get('FERMETURE', '').startswith(today):
             pnl_str = h.get('PNL %', '0').replace('+', '').replace('%', '').strip()
-            try:
-                daily_pnl += float(pnl_str)
-            except ValueError:
-                continue
+            try: daily_pnl += float(pnl_str)
+            except: continue
     
     st.metric("PROFIT DU JOUR", f"{daily_pnl:+.2f}%", delta=f"{daily_pnl - 5:.2f}% vs Objectif 5%")
     st.progress(min(max(daily_pnl/5, 0.0), 1.0), text=f"Progression : {daily_pnl:.2f}% / 5%")
@@ -216,5 +220,3 @@ with tab_journal:
             cols_ordre = ["SYMBOLE", "OUVERTURE", "FERMETURE", "ENTREE", "SORTIE", "PNL %", "RAISON", "STYLE"]
             cols_valides = [c for c in cols_ordre if c in df_hist.columns]
             st.dataframe(df_hist[cols_valides].iloc[::-1], use_container_width=True)
-        else:
-            st.info("L'historique est vide.")
