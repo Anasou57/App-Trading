@@ -1,5 +1,3 @@
 streamlit
 pandas
-pandas-ta
 ccxt
-google-generativeai
