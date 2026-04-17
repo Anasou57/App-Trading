@@ -2,4 +2,3 @@ streamlit
 pandas
 pandas_ta
 ccxt
-google-generativeai
