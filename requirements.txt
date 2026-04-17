@@ -2,5 +2,5 @@ streamlit
 pandas
 ccxt
 google-generativeai
-https://github.com/twopirllc/pandas-ta/archive/master.zip
+pandas-ta
 
