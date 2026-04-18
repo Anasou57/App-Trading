@@ -5,6 +5,7 @@ import pandas_ta as ta
 import json
 import os
 import time
+import traceback
 from datetime import datetime
 
 # ============================================================
@@ -46,149 +47,206 @@ def archive_position(symbol, data, exit_price, reason):
     return pnl
 
 # ============================================================
-# EXCHANGES
+# EXCHANGES — options compatibles Streamlit Cloud
 # ============================================================
+EXCHANGE_OPTIONS = {
+    'timeout':         20000,
+    'enableRateLimit': True,
+    'options': {
+        'defaultType': 'spot',
+        'adjustForTimeDifference': True,
+    },
+}
+
+FUTURES_OPTIONS = {
+    'timeout':         20000,
+    'enableRateLimit': True,
+    'options': {
+        'defaultType': 'swap',
+        'adjustForTimeDifference': True,
+    },
+}
+
 @st.cache_resource
 def get_spot_exchange():
-    return ccxt.kucoin({'timeout': 30000, 'enableRateLimit': True})
+    ex = ccxt.kucoin(EXCHANGE_OPTIONS)
+    ex.load_markets()
+    return ex
 
 @st.cache_resource
 def get_futures_exchange():
-    return ccxt.kucoinfutures({'timeout': 30000, 'enableRateLimit': True})
+    ex = ccxt.kucoinfutures(FUTURES_OPTIONS)
+    ex.load_markets()
+    return ex
 
 # ============================================================
 # CONFIG
 # ============================================================
-st.set_page_config(page_title="SMC V8 PRO — SPOT & FUTURES", layout="wide")
+st.set_page_config(page_title="SMC V8 — SPOT & FUTURES", layout="wide")
 
-if 'test_positions'  not in st.session_state:
-    st.session_state['test_positions']  = load_data(DB_FILE)
-if 'last_monitor'    not in st.session_state:
-    st.session_state['last_monitor']    = 0
+if 'test_positions' not in st.session_state:
+    st.session_state['test_positions'] = load_data(DB_FILE)
+if 'last_monitor' not in st.session_state:
+    st.session_state['last_monitor'] = 0
 
-exchange_spot    = get_spot_exchange()
-exchange_futures = get_futures_exchange()
+# ============================================================
+# TEST CONNEXION AU DÉMARRAGE
+# ============================================================
+@st.cache_data(ttl=60)
+def test_connections():
+    results = {}
+    try:
+        ex = ccxt.kucoin(EXCHANGE_OPTIONS)
+        t  = ex.fetch_ticker('BTC/USDT')
+        results['spot'] = ('ok', t['last'])
+    except Exception as e:
+        results['spot'] = ('err', str(e))
+    try:
+        ex = ccxt.kucoinfutures(FUTURES_OPTIONS)
+        t  = ex.fetch_ticker('XBTUSDTM')
+        results['futures'] = ('ok', t['last'])
+    except Exception as e:
+        results['futures'] = ('err', str(e))
+    return results
 
 # ============================================================
 # MOTEUR D'ANALYSE
 # ============================================================
 def fetch_df(exchange_obj, symbol, tf, limit=150):
-    bars = exchange_obj.fetch_ohlcv(symbol, timeframe=tf, limit=limit)
-    df   = pd.DataFrame(bars, columns=['t','o','h','l','c','v'])
-    return df
+    """Fetch OHLCV avec retry x2 et délai."""
+    for attempt in range(2):
+        try:
+            bars = exchange_obj.fetch_ohlcv(symbol, timeframe=tf, limit=limit)
+            if not bars or len(bars) < 30:
+                raise ValueError(f"Données insuffisantes ({len(bars) if bars else 0} bougies)")
+            df = pd.DataFrame(bars, columns=['t','o','h','l','c','v'])
+            df = df.dropna()
+            return df
+        except Exception as e:
+            if attempt == 0:
+                time.sleep(0.5)
+            else:
+                raise e
 
 def compute_indicators(df):
-    df['ema20']  = ta.ema(df['c'], length=20)
-    df['ema50']  = ta.ema(df['c'], length=50)
-    df['ema200'] = ta.ema(df['c'], length=200)
-    df['rsi']    = ta.rsi(df['c'], length=14)
-
-    macd = ta.macd(df['c'], fast=12, slow=26, signal=9)
-    if macd is not None:
-        df['macd']        = macd['MACD_12_26_9']
-        df['macd_signal'] = macd['MACDs_12_26_9']
-        df['macd_hist']   = macd['MACDh_12_26_9']
-
-    df['atr'] = ta.atr(df['h'], df['l'], df['c'], length=14)
-
-    bb = ta.bbands(df['c'], length=20, std=2)
-    if bb is not None:
-        df['bb_upper'] = bb['BBU_20_2.0']
-        df['bb_lower'] = bb['BBL_20_2.0']
-        df['bb_mid']   = bb['BBM_20_2.0']
-        df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['bb_mid']
-
-    adx_data = ta.adx(df['h'], df['l'], df['c'], length=14)
-    if adx_data is not None:
-        df['adx'] = adx_data['ADX_14']
-        df['dmp'] = adx_data['DMP_14']
-        df['dmn'] = adx_data['DMN_14']
-
-    df['vol_sma20'] = df['v'].rolling(20).mean()
-    df['vol_ratio'] = df['v'] / df['vol_sma20']
-
-    stoch = ta.stoch(df['h'], df['l'], df['c'], k=14, d=3)
-    if stoch is not None:
-        df['stoch_k'] = stoch['STOCHk_14_3_3']
-        df['stoch_d'] = stoch['STOCHd_14_3_3']
-
+    df = df.copy()
+    try: df['ema20']  = ta.ema(df['c'], length=20)
+    except: df['ema20'] = None
+    try: df['ema50']  = ta.ema(df['c'], length=50)
+    except: df['ema50'] = None
+    try: df['ema200'] = ta.ema(df['c'], length=200)
+    except: df['ema200'] = None
+    try: df['rsi']    = ta.rsi(df['c'], length=14)
+    except: df['rsi'] = None
+    try:
+        macd = ta.macd(df['c'], fast=12, slow=26, signal=9)
+        if macd is not None:
+            df['macd']        = macd.iloc[:, 0]
+            df['macd_signal'] = macd.iloc[:, 2]
+            df['macd_hist']   = macd.iloc[:, 1]
+    except: pass
+    try: df['atr'] = ta.atr(df['h'], df['l'], df['c'], length=14)
+    except: df['atr'] = df['c'] * 0.01
+    try:
+        bb = ta.bbands(df['c'], length=20, std=2)
+        if bb is not None:
+            df['bb_upper'] = bb.iloc[:, 0]
+            df['bb_lower'] = bb.iloc[:, 2]
+            df['bb_mid']   = bb.iloc[:, 1]
+            df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['bb_mid']
+    except: pass
+    try:
+        adx_data = ta.adx(df['h'], df['l'], df['c'], length=14)
+        if adx_data is not None:
+            df['adx'] = adx_data.iloc[:, 0]
+            df['dmp'] = adx_data.iloc[:, 1]
+            df['dmn'] = adx_data.iloc[:, 2]
+    except: pass
+    try:
+        df['vol_sma20'] = df['v'].rolling(20).mean()
+        df['vol_ratio'] = df['v'] / df['vol_sma20']
+    except: pass
+    try:
+        stoch = ta.stoch(df['h'], df['l'], df['c'], k=14, d=3)
+        if stoch is not None:
+            df['stoch_k'] = stoch.iloc[:, 0]
+            df['stoch_d'] = stoch.iloc[:, 1]
+    except: pass
     return df
 
 def detect_structure(df):
-    highs = df['h'].rolling(5, center=True).max()
-    lows  = df['l'].rolling(5, center=True).min()
-    rh = [df['h'].iloc[i] for i in range(len(df)-20, len(df)) if df['h'].iloc[i] == highs.iloc[i]]
-    rl = [df['l'].iloc[i] for i in range(len(df)-20, len(df)) if df['l'].iloc[i] == lows.iloc[i]]
-    if len(rh) >= 2 and len(rl) >= 2:
-        if rh[-1] > rh[-2] and rl[-1] > rl[-2]: return "BULLISH"
-        if rh[-1] < rh[-2] and rl[-1] < rl[-2]: return "BEARISH"
+    try:
+        highs = df['h'].rolling(5, center=True).max()
+        lows  = df['l'].rolling(5, center=True).min()
+        rh = [df['h'].iloc[i] for i in range(max(0,len(df)-20), len(df)) if df['h'].iloc[i] == highs.iloc[i]]
+        rl = [df['l'].iloc[i] for i in range(max(0,len(df)-20), len(df)) if df['l'].iloc[i] == lows.iloc[i]]
+        if len(rh) >= 2 and len(rl) >= 2:
+            if rh[-1] > rh[-2] and rl[-1] > rl[-2]: return "BULLISH"
+            if rh[-1] < rh[-2] and rl[-1] < rl[-2]: return "BEARISH"
+    except: pass
     return "NEUTRAL"
 
 def detect_ob_fvg(df):
     ob_bull, ob_bear, fvg = None, None, None
-    for i in range(len(df)-10, len(df)-1):
-        if df['c'].iloc[i] < df['o'].iloc[i] and df['c'].iloc[i+1] > df['o'].iloc[i+1]:
-            if df['c'].iloc[i+1] > df['h'].iloc[i]:
-                ob_bull = df['l'].iloc[i]
-        if df['c'].iloc[i] > df['o'].iloc[i] and df['c'].iloc[i+1] < df['o'].iloc[i+1]:
-            if df['c'].iloc[i+1] < df['l'].iloc[i]:
-                ob_bear = df['h'].iloc[i]
-    for i in range(len(df)-8, len(df)-2):
-        gap = df['l'].iloc[i+1] - df['h'].iloc[i-1]
-        if gap > 0:   fvg = {'type':'bullish','low':df['h'].iloc[i-1],'high':df['l'].iloc[i+1]}
-        elif gap < 0: fvg = {'type':'bearish','low':df['l'].iloc[i+1],'high':df['h'].iloc[i-1]}
+    try:
+        for i in range(max(0,len(df)-10), len(df)-1):
+            if df['c'].iloc[i] < df['o'].iloc[i] and df['c'].iloc[i+1] > df['o'].iloc[i+1]:
+                if df['c'].iloc[i+1] > df['h'].iloc[i]: ob_bull = float(df['l'].iloc[i])
+            if df['c'].iloc[i] > df['o'].iloc[i] and df['c'].iloc[i+1] < df['o'].iloc[i+1]:
+                if df['c'].iloc[i+1] < df['l'].iloc[i]: ob_bear = float(df['h'].iloc[i])
+        for i in range(max(0,len(df)-8), len(df)-2):
+            gap = df['l'].iloc[i+1] - df['h'].iloc[i-1]
+            if gap > 0:   fvg = {'type':'bullish','low':float(df['h'].iloc[i-1]),'high':float(df['l'].iloc[i+1])}
+            elif gap < 0: fvg = {'type':'bearish','low':float(df['l'].iloc[i+1]),'high':float(df['h'].iloc[i-1])}
+    except: pass
     return ob_bull, ob_bear, fvg
 
 def score_setup(r_htf, r_ltf, mode):
     score = 0
-    last  = r_ltf
+    c     = r_ltf.get('c', 0) or 0
+    e20   = r_ltf.get('ema20')
+    e50   = r_ltf.get('ema50')
+    e200  = r_ltf.get('ema200')
 
-    # EMA alignment
-    e20  = last.get('ema20')
-    e50  = last.get('ema50')
-    e200 = last.get('ema200')
-    c    = last.get('c', 0)
     if e20 and e50 and e200:
         if c > e20 > e50 > e200:   score += 20
         elif c < e20 < e50 < e200: score += 20
         elif c > e50:              score += 10
         else:                      score += 5
     else:
-        score += 5  # données insuffisantes = score partiel au lieu de 0
+        score += 5
 
-    # RSI
-    rsi = last.get('rsi', 50)
+    rsi = r_ltf.get('rsi', 50)
     if rsi:
         if 40 < rsi < 65:          score += 15
-        elif rsi < 35 or rsi > 70: score += 10  # opportunité reversal
+        elif rsi < 35 or rsi > 70: score += 10
 
-    # MACD
-    if last.get('macd') and last.get('macd_signal'):
-        score += 15 if last['macd'] > last['macd_signal'] and last.get('macd_hist', 0) > 0 else 8
+    if r_ltf.get('macd') and r_ltf.get('macd_signal'):
+        score += 15 if r_ltf['macd'] > r_ltf['macd_signal'] and (r_ltf.get('macd_hist') or 0) > 0 else 8
 
-    # Volume
-    vr = last.get('vol_ratio', 1)
-    if vr and vr > 1.3:   score += 10
-    elif vr and vr > 1.0: score += 5
+    vr = r_ltf.get('vol_ratio', 1) or 1
+    if vr > 1.3:   score += 10
+    elif vr > 1.0: score += 5
 
-    # Structure HTF
     struct = r_htf.get('structure', 'NEUTRAL')
     if struct == "BULLISH" and c > (e50 or 0):        score += 20
     elif struct == "BEARISH" and c < (e50 or 999999): score += 20
-    else:                                              score += 8  # neutral = petit bonus
+    else:                                              score += 8
 
-    # OB
     if r_ltf.get('ob_bull') or r_ltf.get('ob_bear'): score += 10
 
-    # ADX — bonus seulement, pas de pénalité
-    adx = last.get('adx', 20) or 20
-    if "RANGE" in mode and adx < 25:      score += 10
+    adx = r_ltf.get('adx', 20) or 20
+    if "RANGE" in mode and adx < 25:       score += 10
     elif "RANGE" not in mode and adx > 20: score += 10
     elif "RANGE" not in mode and adx > 15: score += 5
 
     return min(score, 100)
 
 def get_market_analysis(exchange_obj, symbol, mode_choisi, market_type="SPOT"):
+    """
+    Retourne (result_dict, error_str).
+    error_str est None si succès, sinon contient le message d'erreur.
+    """
     try:
         if "SCALPING" in mode_choisi:
             htf, ltf = "15m", "5m"
@@ -209,40 +267,40 @@ def get_market_analysis(exchange_obj, symbol, mode_choisi, market_type="SPOT"):
         ob_bull, ob_bear, fvg = detect_ob_fvg(df_ltf)
         row_ltf['ob_bull'] = ob_bull
         row_ltf['ob_bear'] = ob_bear
-        row_ltf['fvg']     = fvg
 
         score    = score_setup(row_htf, row_ltf, mode_choisi)
-        adx_val  = row_ltf.get('adx') or 20
+        adx_val  = float(row_ltf.get('adx') or 20)
         is_range = adx_val < 22
 
         return {
             "symbol":        symbol,
             "market_type":   market_type,
-            "prix":          row_ltf['c'],
-            "atr":           row_ltf.get('atr') or row_ltf['c'] * 0.01,
+            "prix":          float(row_ltf['c']),
+            "atr":           float(row_ltf.get('atr') or row_ltf['c'] * 0.01),
             "adx":           adx_val,
-            "rsi":           row_ltf.get('rsi'),
-            "macd_hist":     row_ltf.get('macd_hist'),
-            "ema20":         row_ltf.get('ema20'),
-            "ema50":         row_ltf.get('ema50'),
-            "ema200":        row_ltf.get('ema200'),
-            "bb_upper":      row_ltf.get('bb_upper'),
-            "bb_lower":      row_ltf.get('bb_lower'),
-            "bb_width":      row_ltf.get('bb_width'),
-            "vol_ratio":     row_ltf.get('vol_ratio', 1),
-            "stoch_k":       row_ltf.get('stoch_k'),
+            "rsi":           float(row_ltf['rsi']) if row_ltf.get('rsi') is not None else None,
+            "macd_hist":     float(row_ltf['macd_hist']) if row_ltf.get('macd_hist') is not None else None,
+            "ema20":         float(row_ltf['ema20']) if row_ltf.get('ema20') is not None else None,
+            "ema50":         float(row_ltf['ema50']) if row_ltf.get('ema50') is not None else None,
+            "ema200":        float(row_ltf['ema200']) if row_ltf.get('ema200') is not None else None,
+            "bb_upper":      float(row_ltf['bb_upper']) if row_ltf.get('bb_upper') is not None else None,
+            "bb_lower":      float(row_ltf['bb_lower']) if row_ltf.get('bb_lower') is not None else None,
+            "bb_width":      float(row_ltf['bb_width']) if row_ltf.get('bb_width') is not None else None,
+            "vol_ratio":     float(row_ltf.get('vol_ratio') or 1),
+            "stoch_k":       float(row_ltf['stoch_k']) if row_ltf.get('stoch_k') is not None else None,
             "structure_htf": row_htf['structure'],
             "structure_ltf": detect_structure(df_ltf),
             "ob_bull":       ob_bull,
             "ob_bear":       ob_bear,
-            "fvg":           row_ltf.get('fvg'),
+            "fvg":           fvg,
             "is_range":      is_range,
             "score":         score,
             "htf":           htf,
             "ltf":           ltf,
-        }
+        }, None
+
     except Exception as e:
-        return None
+        return None, f"{type(e).__name__}: {str(e)}"
 
 def compute_levels(res, mode_choisi):
     prix = res['prix']
@@ -255,7 +313,7 @@ def compute_levels(res, mode_choisi):
     else:
         entry = prix
 
-    if entry is None: entry = prix
+    if not entry: entry = prix
 
     sl_atr = entry - atr * 1.5
     if res.get('ob_bull'):
@@ -303,44 +361,59 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================
-# AUTO-MONITORING (60s)
-# ============================================================
-now = time.time()
-if now - st.session_state['last_monitor'] > 60 and st.session_state['test_positions']:
-    st.session_state['last_monitor'] = now
-    changed = False
-    for key, data in list(st.session_state['test_positions'].items()):
-        try:
-            sym      = data.get('symbol', key)
-            exch_obj = exchange_futures if data.get('market_type') == 'FUTURES' else exchange_spot
-            cur_p    = exch_obj.fetch_ticker(sym)['last']
-            if cur_p >= data['tp1']:
-                archive_position(sym, data, data['tp1'], "TP1 ✅")
-                del st.session_state['test_positions'][key]; changed = True
-            elif cur_p <= data['sl']:
-                archive_position(sym, data, data['sl'], "SL ❌")
-                del st.session_state['test_positions'][key]; changed = True
-        except: continue
-    if changed:
-        save_data(DB_FILE, st.session_state['test_positions'])
-        st.rerun()
-
-# ============================================================
-# HEADER
+# HEADER + TEST CONNEXION
 # ============================================================
 st.title("📟 SMC PRO V8 — SPOT & FUTURES | KuCoin")
 
+cx = test_connections()
 col_cx1, col_cx2 = st.columns(2)
-try:
-    bp = exchange_spot.fetch_ticker('BTC/USDT')['last']
-    col_cx1.success(f"✅ SPOT OK | BTC: {bp:,.2f}$")
-except Exception as e:
-    col_cx1.error(f"❌ SPOT : {e}")
-try:
-    bf = exchange_futures.fetch_ticker('XBTUSDTM')['last']
-    col_cx2.success(f"✅ FUTURES OK | BTC: {bf:,.2f}$")
-except Exception as e:
-    col_cx2.error(f"❌ FUTURES : {e}")
+spot_ok = cx['spot'][0] == 'ok'
+fut_ok  = cx['futures'][0] == 'ok'
+
+if spot_ok:
+    col_cx1.success(f"✅ SPOT OK | BTC: {cx['spot'][1]:,.2f}$")
+else:
+    col_cx1.error(f"❌ SPOT — {cx['spot'][1]}")
+    st.error(
+        "⚠️ **Connexion KuCoin échouée.**\n\n"
+        f"Erreur : `{cx['spot'][1]}`\n\n"
+        "**Solutions :**\n"
+        "- Vérifiez que votre app Streamlit Cloud a accès à internet\n"
+        "- Ajoutez `ccxt>=4.2.0` dans `requirements.txt`\n"
+        "- Si l'erreur est `NetworkError` ou `ExchangeNotAvailable`, "
+        "KuCoin est peut-être temporairement indisponible depuis les serveurs Streamlit Cloud\n"
+        "- Essayez de redémarrer l'app depuis le dashboard Streamlit"
+    )
+
+if fut_ok:
+    col_cx2.success(f"✅ FUTURES OK | BTC: {cx['futures'][1]:,.2f}$")
+else:
+    col_cx2.warning(f"⚠️ FUTURES — {cx['futures'][1]}")
+
+# ============================================================
+# AUTO-MONITORING
+# ============================================================
+if spot_ok or fut_ok:
+    now = time.time()
+    if now - st.session_state['last_monitor'] > 60 and st.session_state['test_positions']:
+        st.session_state['last_monitor'] = now
+        changed = False
+        for key, data in list(st.session_state['test_positions'].items()):
+            try:
+                sym      = data.get('symbol', key)
+                mkt      = data.get('market_type', 'SPOT')
+                exch_obj = get_futures_exchange() if mkt == 'FUTURES' else get_spot_exchange()
+                cur_p    = exch_obj.fetch_ticker(sym)['last']
+                if cur_p >= data['tp1']:
+                    archive_position(sym, data, data['tp1'], "TP1 ✅")
+                    del st.session_state['test_positions'][key]; changed = True
+                elif cur_p <= data['sl']:
+                    archive_position(sym, data, data['sl'], "SL ❌")
+                    del st.session_state['test_positions'][key]; changed = True
+            except: continue
+        if changed:
+            save_data(DB_FILE, st.session_state['test_positions'])
+            st.rerun()
 
 tab_scan, tab_journal = st.tabs(["🔎 SCANNER INTELLIGENT", "📈 JOURNAL & PERFORMANCE"])
 
@@ -350,23 +423,16 @@ tab_scan, tab_journal = st.tabs(["🔎 SCANNER INTELLIGENT", "📈 JOURNAL & PER
 with st.sidebar:
     st.header("⚙️ CONFIGURATION")
     mode_actuel = st.selectbox("STYLE DE TRADING", [
-        "SCALPING (5m)",
-        "RANGE MODE (Rebond)",
-        "DAY TRADING (1h)",
-        "SWING (4h)",
+        "SCALPING (5m)", "RANGE MODE (Rebond)", "DAY TRADING (1h)", "SWING (4h)",
     ])
     st.divider()
     st.subheader("🔧 Filtres scanner")
-
-    # ✅ FILTRE ADX SUPPRIMÉ — remplacé par score uniquement
-    score_min   = st.slider("Score minimum",          20, 80, 40)
-    nb_spot     = st.slider("Paires SPOT à scanner",  10, 80, 50)
-    nb_futures  = st.slider("Paires FUTURES à scanner", 10, 60, 30)
-    debug_mode  = st.checkbox("🔍 Mode debug (voir détails)", value=False)
-
+    score_min  = st.slider("Score minimum",            20, 80, 40)
+    nb_spot    = st.slider("Paires SPOT à scanner",    10, 80, 50)
+    nb_futures = st.slider("Paires FUTURES à scanner", 10, 60, 30)
+    debug_mode = st.checkbox("🔍 Mode debug", value=True)
     st.divider()
     st.caption(f"Positions actives : {len(st.session_state['test_positions'])}")
-    st.caption("Auto-monitoring : 60s")
     if st.button("🔄 ACTUALISER"):    st.rerun()
     if st.button("🗑️ RESET JOURNAL"):
         save_data(DB_FILE, {})
@@ -383,114 +449,121 @@ with tab_scan:
         st.subheader("🔎 Résultats")
 
         if st.button(f"🚀 LANCER SCAN — {mode_actuel}"):
-            all_results   = []
-            debug_log     = []
+            all_results  = []
+            debug_log    = []
+            err_types    = {}  # comptage des types d'erreurs
 
             with st.status("Analyse SPOT + FUTURES...", expanded=True) as status:
 
-                # ══════════════════════════════
-                # SCAN SPOT
-                # ══════════════════════════════
-                st.write("📦 Récupération paires SPOT KuCoin...")
-                try:
-                    tickers_spot = exchange_spot.fetch_tickers()
-                    pairs_spot   = sorted(
-                        [s for s in tickers_spot
-                         if s.endswith('/USDT')
-                         and 'UP/'   not in s
-                         and 'DOWN/' not in s
-                         and '3L/'   not in s
-                         and '3S/'   not in s],
-                        key=lambda x: tickers_spot[x].get('quoteVolume') or 0,
-                        reverse=True
-                    )[:nb_spot]
+                # ── SPOT ──
+                if spot_ok:
+                    st.write("📦 Scan SPOT...")
+                    try:
+                        ex_spot      = get_spot_exchange()
+                        tickers_spot = ex_spot.fetch_tickers()
+                        pairs_spot   = sorted(
+                            [s for s in tickers_spot
+                             if s.endswith('/USDT')
+                             and 'UP/'   not in s and 'DOWN/' not in s
+                             and '3L/'   not in s and '3S/'   not in s],
+                            key=lambda x: tickers_spot[x].get('quoteVolume') or 0,
+                            reverse=True
+                        )[:nb_spot]
 
-                    st.write(f"  → {len(pairs_spot)} paires SPOT sélectionnées")
-                    ok_s, fail_s = 0, 0
+                        ok_s = fail_s = ret_s = 0
+                        for p in pairs_spot:
+                            time.sleep(0.05)  # rate limit doux
+                            ana, err = get_market_analysis(ex_spot, p, mode_actuel, "SPOT")
+                            if err:
+                                fail_s += 1
+                                err_key = err.split(':')[0]
+                                err_types[err_key] = err_types.get(err_key, 0) + 1
+                                debug_log.append(f"[SPOT] {p} → ❌ {err}")
+                            else:
+                                ok_s += 1
+                                passes  = ana['score'] >= score_min
+                                rsi_str = f"{ana['rsi']:.1f}" if ana['rsi'] else 'N/A'
+                                ok_str  = '✅' if passes else '❌'
+                                debug_log.append(
+                                    f"[SPOT] {p} → score={ana['score']} "
+                                    f"adx={ana['adx']:.1f} rsi={rsi_str} {ok_str}"
+                                )
+                                if passes:
+                                    ret_s += 1
+                                    all_results.append({
+                                        "sym": p, "score": ana['score'],
+                                        "structure": ana['structure_htf'],
+                                        "market_type": "SPOT",
+                                        "prix": ana['prix'],
+                                        "rsi": ana['rsi'],
+                                        "adx": ana['adx'],
+                                        "is_range": ana['is_range'],
+                                    })
+                        st.write(f"  → SPOT : {ok_s} OK · {fail_s} erreurs · {ret_s} retenus")
+                        if err_types:
+                            st.write(f"  → Types d'erreurs : {err_types}")
 
-                    for p in pairs_spot:
-                        ana = get_market_analysis(exchange_spot, p, mode_actuel, "SPOT")
-                        if ana is None:
-                            fail_s += 1
-                            debug_log.append(f"[SPOT] {p} → ERREUR analyse")
-                            continue
+                    except Exception as e:
+                        st.error(f"Erreur SPOT globale : {e}")
+                        debug_log.append(f"[SPOT GLOBAL] {traceback.format_exc()}")
+                else:
+                    st.warning("SPOT ignoré (connexion KO)")
 
-                        ok_s += 1
-                        passes = ana['score'] >= score_min
-                        debug_log.append(
-                            f"[SPOT] {p} → score={ana['score']} adx={ana['adx']:.1f} "
-                            f"rsi={ana['rsi']:.1f if ana['rsi'] else 'N/A'} → {'✅' if passes else '❌'}"
-                        )
-                        if passes:
-                            all_results.append({
-                                "sym":         p,
-                                "score":       ana['score'],
-                                "structure":   ana['structure_htf'],
-                                "market_type": "SPOT",
-                                "prix":        ana['prix'],
-                                "rsi":         ana['rsi'],
-                                "adx":         ana['adx'],
-                                "is_range":    ana['is_range'],
-                            })
+                # ── FUTURES ──
+                if fut_ok:
+                    st.write("📊 Scan FUTURES...")
+                    try:
+                        ex_fut      = get_futures_exchange()
+                        markets_fut = ex_fut.markets  # déjà chargé via load_markets()
+                        pairs_fut   = sorted(
+                            [s for s in markets_fut
+                             if markets_fut[s].get('quote') == 'USDT'
+                             and markets_fut[s].get('type') in ('swap', 'future')
+                             and markets_fut[s].get('active', True)],
+                            key=lambda x: float(markets_fut[x].get('info', {}).get('volumeOf24h') or 0),
+                            reverse=True
+                        )[:nb_futures]
 
-                    st.write(f"  → SPOT : {ok_s} analysées, {len([r for r in all_results if r['market_type']=='SPOT'])} retenues, {fail_s} erreurs")
+                        ok_f = fail_f = ret_f = 0
+                        for p in pairs_fut:
+                            time.sleep(0.05)
+                            ana, err = get_market_analysis(ex_fut, p, mode_actuel, "FUTURES")
+                            if err:
+                                fail_f += 1
+                                err_key = err.split(':')[0]
+                                err_types[err_key] = err_types.get(err_key, 0) + 1
+                                debug_log.append(f"[FUT] {p} → ❌ {err}")
+                            else:
+                                ok_f += 1
+                                passes = ana['score'] >= score_min
+                                debug_log.append(
+                                    f"[FUT] {p} → score={ana['score']} "
+                                    f"adx={ana['adx']:.1f} "
+                                    f"{'✅' if passes else '❌'}"
+                                )
+                                if passes:
+                                    ret_f += 1
+                                    all_results.append({
+                                        "sym": p, "score": ana['score'],
+                                        "structure": ana['structure_htf'],
+                                        "market_type": "FUTURES",
+                                        "prix": ana['prix'],
+                                        "rsi": ana['rsi'],
+                                        "adx": ana['adx'],
+                                        "is_range": ana['is_range'],
+                                    })
+                        st.write(f"  → FUTURES : {ok_f} OK · {fail_f} erreurs · {ret_f} retenus")
 
-                except Exception as e:
-                    st.warning(f"Erreur SPOT : {e}")
+                    except Exception as e:
+                        st.error(f"Erreur FUTURES globale : {e}")
+                        debug_log.append(f"[FUT GLOBAL] {traceback.format_exc()}")
+                else:
+                    st.warning("FUTURES ignorés (connexion KO)")
 
-                # ══════════════════════════════
-                # SCAN FUTURES
-                # ══════════════════════════════
-                st.write("📊 Récupération paires FUTURES KuCoin...")
-                try:
-                    markets_fut = exchange_futures.load_markets()
-
-                    # KuCoin Futures — format réel des symboles perpetual USDT
-                    pairs_fut = sorted(
-                        [s for s in markets_fut
-                         if markets_fut[s].get('quote') == 'USDT'
-                         and markets_fut[s].get('type') in ('swap', 'future')
-                         and markets_fut[s].get('active', True)],
-                        key=lambda x: markets_fut[x].get('info', {}).get('volumeOf24h') or 0,
-                        reverse=True
-                    )[:nb_futures]
-
-                    st.write(f"  → {len(pairs_fut)} paires FUTURES sélectionnées")
-                    ok_f, fail_f = 0, 0
-
-                    for p in pairs_fut:
-                        ana = get_market_analysis(exchange_futures, p, mode_actuel, "FUTURES")
-                        if ana is None:
-                            fail_f += 1
-                            debug_log.append(f"[FUT] {p} → ERREUR analyse")
-                            continue
-
-                        ok_f += 1
-                        passes = ana['score'] >= score_min
-                        debug_log.append(
-                            f"[FUT] {p} → score={ana['score']} adx={ana['adx']:.1f} → {'✅' if passes else '❌'}"
-                        )
-                        if passes:
-                            all_results.append({
-                                "sym":         p,
-                                "score":       ana['score'],
-                                "structure":   ana['structure_htf'],
-                                "market_type": "FUTURES",
-                                "prix":        ana['prix'],
-                                "rsi":         ana['rsi'],
-                                "adx":         ana['adx'],
-                                "is_range":    ana['is_range'],
-                            })
-
-                    st.write(f"  → FUTURES : {ok_f} analysées, {len([r for r in all_results if r['market_type']=='FUTURES'])} retenues, {fail_f} erreurs")
-
-                except Exception as e:
-                    st.warning(f"Erreur FUTURES : {e}")
-
-                # ══════════════════════════════
                 all_results.sort(key=lambda x: x['score'], reverse=True)
-                st.session_state['scan_res']   = all_results
-                st.session_state['debug_log']  = debug_log
+                st.session_state['scan_res']  = all_results
+                st.session_state['debug_log'] = debug_log
+                st.session_state['err_types'] = err_types
 
                 nb_s = sum(1 for r in all_results if r['market_type'] == 'SPOT')
                 nb_f = sum(1 for r in all_results if r['market_type'] == 'FUTURES')
@@ -499,12 +572,13 @@ with tab_scan:
                     state="complete"
                 )
 
-        # ── Affichage résultats ──
+        # ── Résultats ──
         if 'scan_res' in st.session_state:
-            results = st.session_state['scan_res']
+            results   = st.session_state['scan_res']
+            err_types = st.session_state.get('err_types', {})
 
             if results:
-                st.caption(f"{len(results)} setup(s) — classés par score ↓")
+                st.caption(f"{len(results)} setup(s) · classés par score ↓")
                 for r in results:
                     trend_icon = "🟢" if r['structure'] == "BULLISH" else "🔴" if r['structure'] == "BEARISH" else "🟡"
                     mkt_badge  = "🔵 SPOT" if r['market_type'] == "SPOT" else "🟠 FUTURES"
@@ -515,32 +589,48 @@ with tab_scan:
                         st.session_state['active_mkt'] = r['market_type']
             else:
                 st.error("❌ Aucun setup trouvé.")
-                st.info(
-                    "**Causes possibles :**\n"
-                    "- Score minimum trop élevé → baissez à **20** dans la sidebar\n"
-                    "- Marché très calme (week-end / nuit)\n"
-                    "- Erreurs API KuCoin (rate limit)\n\n"
-                    "Activez **Mode debug** dans la sidebar pour voir le détail."
-                )
+                if err_types:
+                    st.warning(f"Types d'erreurs rencontrées : {err_types}")
+                    # Diagnostic selon le type d'erreur
+                    if 'NetworkError' in err_types or 'ExchangeNotAvailable' in err_types:
+                        st.info(
+                            "🔌 **Erreur réseau** — KuCoin est bloqué depuis Streamlit Cloud.\n\n"
+                            "**Fix :** Dans votre `secrets.toml` Streamlit ou dans le dashboard, "
+                            "il n'y a pas de proxy possible. Vérifiez que votre app tourne bien sur "
+                            "les serveurs US de Streamlit (parfois KuCoin bloque les IPs américaines).\n\n"
+                            "**Alternative recommandée** : Remplacez KuCoin par **Binance** "
+                            "qui est toujours accessible depuis Streamlit Cloud."
+                        )
+                    elif 'RateLimitExceeded' in err_types:
+                        st.info("⏱️ **Rate limit** — Attendez 1 minute puis relancez.")
+                    elif 'BadSymbol' in err_types:
+                        st.info("📋 **Mauvais format de symbole** — Activez debug pour voir lesquels.")
+                else:
+                    st.info("Baissez le score minimum à 20 ou activez le mode debug.")
 
             # Debug log
             if debug_mode and 'debug_log' in st.session_state:
                 with st.expander("🔍 Debug — détail de chaque paire", expanded=False):
                     for line in st.session_state['debug_log']:
-                        color = "green" if "✅" in line else "red" if "ERREUR" in line else "gray"
-                        st.markdown(f"<span style='color:{color};font-size:11px'>{line}</span>", unsafe_allow_html=True)
+                        color = "#00FF41" if "✅" in line else "#FF4444" if "❌" in line else "#888"
+                        st.markdown(
+                            f"<span style='color:{color};font-size:11px;font-family:monospace'>{line}</span>",
+                            unsafe_allow_html=True
+                        )
 
     # ── FOCUS PAIRE ──
     with col_focus:
         if 'active_p' in st.session_state and 'active_mkt' in st.session_state:
             p        = st.session_state['active_p']
             act_mkt  = st.session_state['active_mkt']
-            exch_obj = exchange_futures if act_mkt == "FUTURES" else exchange_spot
+            exch_obj = get_futures_exchange() if act_mkt == "FUTURES" else get_spot_exchange()
             mkt_tag  = "🟠 FUTURES" if act_mkt == "FUTURES" else "🔵 SPOT"
 
-            res = get_market_analysis(exch_obj, p, mode_actuel, act_mkt)
+            res, err = get_market_analysis(exch_obj, p, mode_actuel, act_mkt)
 
-            if res:
+            if err:
+                st.error(f"Erreur analyse {p} : {err}")
+            elif res:
                 levels = compute_levels(res, mode_actuel)
                 st.header(f"💼 {p}  ·  {mkt_tag}  —  Score {res['score']}/100")
 
@@ -574,7 +664,7 @@ with tab_scan:
                 n4.success(f"TP2 +{levels['tp2_pct']:.2f}%\nRR {levels['rr_tp2']}\n{levels['tp2']:.6f}")
                 st.caption(f"TP3 runner +{levels['tp3_pct']:.2f}% → {levels['tp3']:.6f}")
 
-                if res['score'] >= 70:   st.success(f"✅ Setup QUALITÉ — Score {res['score']}/100")
+                if res['score'] >= 70:   st.success(f"✅ Setup QUALITÉ — Score {res['score']}/100 — RR: {levels['rr_tp1']}")
                 elif res['score'] >= 50: st.warning(f"⚠️ Setup MOYEN — Score {res['score']}/100")
                 else:                    st.error(  f"❌ Setup FAIBLE — Score {res['score']}/100")
 
@@ -614,7 +704,7 @@ with tab_journal:
                 val = float(h.get('PNL %','0').replace('+','').replace('%','').strip())
                 daily_pnl += val
                 if val > 0: wins += 1
-                else:       losses += 1
+                else: losses += 1
             except: continue
 
     total_trades = wins + losses
@@ -640,7 +730,7 @@ with tab_journal:
             try:
                 sym      = data.get('symbol', key)
                 mkt      = data.get('market_type', 'SPOT')
-                exch_obj = exchange_futures if mkt == "FUTURES" else exchange_spot
+                exch_obj = get_futures_exchange() if mkt == 'FUTURES' else get_spot_exchange()
                 mkt_tag  = "🟠 FUTURES" if mkt == "FUTURES" else "🔵 SPOT"
                 cur_p    = exch_obj.fetch_ticker(sym)['last']
                 prog     = ((cur_p - data['entry']) / data['entry']) * 100
@@ -668,7 +758,11 @@ with tab_journal:
                         del st.session_state['test_positions'][key]
                         save_data(DB_FILE, st.session_state['test_positions'])
                         st.rerun()
-                    st.caption(f"SL: {data['sl']:.6f} ({data.get('risk_pct',0):.2f}%) | TP1: {data['tp1']:.6f} | TP2: {data.get('tp2','N/A')} | Style: {data['style']}")
+                    st.caption(
+                        f"SL: {data['sl']:.6f} ({data.get('risk_pct',0):.2f}%) | "
+                        f"TP1: {data['tp1']:.6f} | TP2: {data.get('tp2','N/A')} | "
+                        f"Style: {data['style']}"
+                    )
             except Exception as e:
                 st.warning(f"Erreur {key}: {e}")
     else:
