@@ -261,7 +261,7 @@ def compute_levels(res, mode_choisi):
     prix = res['prix']
     atr  = res['atr'] or prix * 0.01
 
-    # ── ENTRÉE ──
+    # ── ENTRÉE ── (Reste inchangé)
     if "RANGE" in mode_choisi and res.get('bb_lower'):
         entry = res['ob_bull'] if res['ob_bull'] else res['bb_lower']
     elif res['structure_htf'] == "BULLISH" and res.get('ema20'):
@@ -270,30 +270,31 @@ def compute_levels(res, mode_choisi):
         entry = prix
     if not entry: entry = prix
 
-    # ── STOP LOSS ──
-    sl_atr = entry - atr * 1.5
-    if res.get('ob_bull'):    sl = min(sl_atr, res['ob_bull'] - atr * 0.3)
-    elif res.get('bb_lower'): sl = min(sl_atr, res['bb_lower'] * 0.998)
-    else:                     sl = sl_atr
+    # ── STOP LOSS (Ajusté de 1.5 à 2.2 pour plus de marge) ──
+    # On passe de 1.5 à 2.2 pour éviter les chasses aux liquidités
+    sl_atr = entry - (atr * 2.2) 
+    
+    if res.get('ob_bull'):    
+        # On place le SL un peu sous l'Order Block, mais pas trop loin non plus
+        sl = min(sl_atr, res['ob_bull'] - (atr * 0.5))
+    elif res.get('bb_lower'): 
+        sl = min(sl_atr, res['bb_lower'] * 0.995) # Marge de 0.5% sous la BB
+    else:                     
+        sl = sl_atr
 
-    risk = entry - sl
-    if risk <= 0: risk = atr * 1.5
+    risk = abs(entry - sl)
+    if risk <= 0: risk = atr * 2.2
 
-    # ── TP UNIQUE ──
-    # Prend le max entre RR×2 et le minimum garanti par mode
-    if "RANGE" in mode_choisi and res.get('bb_upper'):
-        tp_raw = res['bb_upper'] * 0.995
-    else:
-        tp_raw = entry + risk * 2.0
+    # ── TP (On garde un RR de 2.0 minimum pour compenser le SL plus large) ──
+    tp_raw = entry + (risk * 2.1) # On monte un poil le RR à 2.1
 
-    # Minimum absolu selon le timeframe
+    # Minimum absolu selon le timeframe (pour éviter les TP trop minuscules)
     if "SCALPING" in mode_choisi or "RANGE" in mode_choisi:
-        tp_min = entry * 1.015   # +1.5% mini scalping/range
+        tp_min = entry * 1.02   # +2% mini
     else:
-        tp_min = entry * 1.02    # +2% mini day/swing
+        tp_min = entry * 1.04   # +4% mini
 
     tp = max(tp_raw, tp_min)
-    risk_final = max(entry - sl, atr * 0.5)
 
     return {
         "entry":    entry,
@@ -301,7 +302,7 @@ def compute_levels(res, mode_choisi):
         "tp":       tp,
         "tp_pct":   ((tp - entry) / entry) * 100,
         "risk_pct": ((sl - entry) / entry) * 100,
-        "rr":       round(abs(tp - entry) / risk_final, 2),
+        "rr":       round(abs(tp - entry) / risk, 2),
     }
 
 # ============================================================
