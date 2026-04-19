@@ -261,6 +261,7 @@ def compute_levels(res, mode_choisi):
     prix = res['prix']
     atr  = res['atr'] or prix * 0.01
 
+    # ── ENTRÉE ──
     if "RANGE" in mode_choisi and res.get('bb_lower'):
         entry = res['ob_bull'] if res['ob_bull'] else res['bb_lower']
     elif res['structure_htf'] == "BULLISH" and res.get('ema20'):
@@ -269,6 +270,7 @@ def compute_levels(res, mode_choisi):
         entry = prix
     if not entry: entry = prix
 
+    # ── STOP LOSS ──
     sl_atr = entry - atr * 1.5
     if res.get('ob_bull'):    sl = min(sl_atr, res['ob_bull'] - atr * 0.3)
     elif res.get('bb_lower'): sl = min(sl_atr, res['bb_lower'] * 0.998)
@@ -277,25 +279,29 @@ def compute_levels(res, mode_choisi):
     risk = entry - sl
     if risk <= 0: risk = atr * 1.5
 
-    tp1 = entry + risk * 1.5
-    tp2 = entry + risk * 2.5
-    tp3 = entry + risk * 4.0
+    # ── TP UNIQUE ──
+    # Prend le max entre RR×2 et le minimum garanti par mode
     if "RANGE" in mode_choisi and res.get('bb_upper'):
-        tp1 = res['bb_upper'] * 0.995
+        tp_raw = res['bb_upper'] * 0.995
+    else:
+        tp_raw = entry + risk * 2.0
+
+    # Minimum absolu selon le timeframe
+    if "SCALPING" in mode_choisi or "RANGE" in mode_choisi:
+        tp_min = entry * 1.015   # +1.5% mini scalping/range
+    else:
+        tp_min = entry * 1.02    # +2% mini day/swing
+
+    tp = max(tp_raw, tp_min)
+    risk_final = max(entry - sl, atr * 0.5)
 
     return {
         "entry":    entry,
         "sl":       sl,
-        "tp":       tp1,
-        "tp1":      tp1,
-        "tp2":      tp2,
-        "tp3":      tp3,
+        "tp":       tp,
+        "tp_pct":   ((tp - entry) / entry) * 100,
         "risk_pct": ((sl - entry) / entry) * 100,
-        "tp1_pct":  ((tp1 - entry) / entry) * 100,
-        "tp2_pct":  ((tp2 - entry) / entry) * 100,
-        "tp3_pct":  ((tp3 - entry) / entry) * 100,
-        "rr_tp1":   round(abs(tp1 - entry) / abs(risk), 2),
-        "rr_tp2":   round(abs(tp2 - entry) / abs(risk), 2),
+        "rr":       round(abs(tp - entry) / risk_final, 2),
     }
 
 # ============================================================
@@ -332,7 +338,7 @@ if now - st.session_state['last_monitor'] > 60 and st.session_state['test_positi
         try:
             sym   = data.get('symbol', p)
             cur_p = get_exchange().fetch_ticker(sym)['last']
-            tp_check = data.get('tp1', data.get('tp', 9e15))
+            tp_check = data.get('tp', 9e15)
             if cur_p >= tp_check:
                 archive_position(sym, data, tp_check, "TP ✅")
                 del st.session_state['test_positions'][p]; changed = True
@@ -490,55 +496,25 @@ with tab_scan:
             elif res:
                 levels = compute_levels(res, mode_actuel)
                 st.header(f"💼 Analyse : {p}")
-                st.caption(
-                    f"Score V8 : {res['score']}/100  |  "
-                    f"HTF ({res['htf']}) : {res['structure_htf']}  |  "
-                    f"LTF ({res['ltf']}) : {res['structure_ltf']}"
-                )
-
-                i1, i2, i3 = st.columns(3)
-                i1.metric("ADX",       f"{res['adx']:.1f}",  "Range" if res['is_range'] else "Tendance")
-                i2.metric("RSI",       f"{res['rsi']:.1f}" if res['rsi'] else "N/A",
-                          "Survendu"  if res['rsi'] and res['rsi'] < 35 else
-                          "Suracheté" if res['rsi'] and res['rsi'] > 70 else "Neutre")
-                i3.metric("Vol Ratio", f"x{res['vol_ratio']:.2f}")
+                st.caption(f"Score : {res['score']}/100  |  HTF ({res['htf']}) : {res['structure_htf']}  |  LTF ({res['ltf']}) : {res['structure_ltf']}")
 
                 st.subheader("📊 Paramètres avec Risque %")
                 st_c1, st_c2, st_c3 = st.columns(3)
-                st_c1.error( f"SL: ({levels['risk_pct']:.2f}%) {levels['sl']:,.4f}")
+                st_c1.error(  f"SL: ({levels['risk_pct']:.2f}%) {levels['sl']:,.4f}")
                 st_c2.warning(f"ENTREE: {levels['entry']:,.4f}")
-                st_c3.success(f"TP1: (+{levels['tp1_pct']:.2f}%) {levels['tp1']:,.4f}")
-                st.caption(
-                    f"TP2: +{levels['tp2_pct']:.2f}% → {levels['tp2']:,.4f}  |  "
-                    f"TP3: +{levels['tp3_pct']:.2f}% → {levels['tp3']:,.4f}  |  "
-                    f"RR: {levels['rr_tp1']}"
-                )
-
-                if res.get('ob_bull') or res.get('ob_bear') or res.get('fvg'):
-                    smc1, smc2, smc3 = st.columns(3)
-                    smc1.write(f"**OB Bull**: {res['ob_bull']:.4f}" if res['ob_bull'] else "**OB Bull**: —")
-                    smc2.write(f"**OB Bear**: {res['ob_bear']:.4f}" if res['ob_bear'] else "**OB Bear**: —")
-                    if res['fvg']:
-                        smc3.write(f"**FVG {res['fvg']['type']}**: {res['fvg']['low']:.4f}–{res['fvg']['high']:.4f}")
-
-                if res['score'] >= 70:   st.success(f"✅ Setup QUALITÉ — Score {res['score']}/100")
-                elif res['score'] >= 50: st.warning(f"⚠️ Setup MOYEN — Score {res['score']}/100")
-                else:                    st.info(   f"ℹ️ Setup FAIBLE — Score {res['score']}/100")
+                st_c3.success(f"TP: (+{levels['tp_pct']:.2f}%) {levels['tp']:,.4f}")
+                st.caption(f"RR: {levels['rr']}  |  ADX: {res['adx']:.1f}  |  RSI: {res['rsi']:.1f}" if res['rsi'] else f"RR: {levels['rr']}  |  ADX: {res['adx']:.1f}")
 
                 if st.button("🚀 VALIDER ET SURVEILLER"):
                     st.session_state['test_positions'][p] = {
                         "symbol":   p,
                         "entry":    levels['entry'],
-                        "tp":       levels['tp1'],
-                        "tp1":      levels['tp1'],
-                        "tp2":      levels['tp2'],
-                        "tp3":      levels['tp3'],
+                        "tp":       levels['tp'],
                         "sl":       levels['sl'],
-                        "tp_pct":   levels['tp1_pct'],
-                        "tp1_pct":  levels['tp1_pct'],
+                        "tp_pct":   levels['tp_pct'],
                         "sl_pct":   levels['risk_pct'],
                         "risk_pct": levels['risk_pct'],
-                        "rr":       levels['rr_tp1'],
+                        "rr":       levels['rr'],
                         "style":    mode_actuel,
                         "score":    res['score'],
                         "time_full":datetime.now().strftime("%d/%m %H:%M:%S"),
@@ -573,29 +549,21 @@ with tab_search:
 
             st.write("---")
             sc1, sc2, sc3 = st.columns(3)
-            sc1.error( f"SL: ({levels['risk_pct']:.2f}%) {levels['sl']:,.4f}")
+            sc1.error(  f"SL: ({levels['risk_pct']:.2f}%) {levels['sl']:,.4f}")
             sc2.warning(f"ENTRÉE: {levels['entry']:,.4f}")
-            sc3.success(f"TP: (+{levels['tp1_pct']:.2f}%) {levels['tp1']:,.4f}")
-            st.caption(
-                f"TP2: +{levels['tp2_pct']:.2f}% → {levels['tp2']:,.4f}  |  "
-                f"TP3: +{levels['tp3_pct']:.2f}% → {levels['tp3']:,.4f}  |  "
-                f"RR: {levels['rr_tp1']}"
-            )
+            sc3.success(f"TP: (+{levels['tp_pct']:.2f}%) {levels['tp']:,.4f}")
+            st.caption(f"RR: {levels['rr']}  |  ADX: {analysis['adx']:.1f}  |  RSI: {analysis['rsi']:.1f}" if analysis['rsi'] else f"RR: {levels['rr']}  |  ADX: {analysis['adx']:.1f}")
 
             if st.button(f"🚀 SURVEILLER {p_full}", key="btn_add_manual"):
                 st.session_state['test_positions'][p_full] = {
                     "symbol":   p_full,
                     "entry":    levels['entry'],
-                    "tp":       levels['tp1'],
-                    "tp1":      levels['tp1'],
-                    "tp2":      levels['tp2'],
-                    "tp3":      levels['tp3'],
+                    "tp":       levels['tp'],
                     "sl":       levels['sl'],
-                    "tp_pct":   levels['tp1_pct'],
-                    "tp1_pct":  levels['tp1_pct'],
+                    "tp_pct":   levels['tp_pct'],
                     "sl_pct":   levels['risk_pct'],
                     "risk_pct": levels['risk_pct'],
-                    "rr":       levels['rr_tp1'],
+                    "rr":       levels['rr'],
                     "style":    mode_actuel,
                     "score":    analysis['score'],
                     "time_full":datetime.now().strftime("%d/%m %H:%M:%S"),
@@ -627,7 +595,7 @@ with tab_journal:
                 sym   = data.get('symbol', p)
                 cur_p = get_exchange().fetch_ticker(sym)['last']
                 prog  = ((cur_p - data['entry']) / data['entry']) * 100
-                tp_check = data.get('tp1', data.get('tp', 9e15))
+                tp_check = data.get('tp', 9e15)
 
                 if cur_p >= tp_check:
                     archive_position(sym, data, tp_check, "TP ✅")
@@ -651,7 +619,7 @@ with tab_journal:
                         st.rerun()
                     st.caption(
                         f"SL: {data['sl']:.4f}  |  "
-                        f"TP1: {data.get('tp1', data.get('tp', '?')):.4f}  |  "
+                        f"TP: {data.get('tp', '?'):.4f}  |  "
                         f"Score: {data.get('score', 'N/A')}  |  "
                         f"Style: {data['style']}"
                     )
