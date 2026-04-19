@@ -485,10 +485,10 @@ with tab_scan:
                             unsafe_allow_html=True
                         )
 
-    # Focus paire — style V7.7
+    # --- FOCUS PAIRE (V7.7 Style avec Double Choix) ---
     with col_focus:
         if 'active_p' in st.session_state:
-            p        = st.session_state['active_p']
+            p = st.session_state['active_p']
             res, err = get_market_analysis(p, mode_actuel)
 
             if err:
@@ -500,24 +500,57 @@ with tab_scan:
 
                 st.subheader("📊 Paramètres avec Risque %")
                 st_c1, st_c2, st_c3 = st.columns(3)
+                
+                # Affichage des niveaux avec les pourcentages comme avant
                 st_c1.error(  f"SL: ({levels['risk_pct']:.2f}%) {levels['sl']:,.4f}")
-                st_c2.warning(f"ENTREE: {levels['entry']:,.4f}")
+                st_c2.warning(f"ENTREE OPTI: {levels['entry']:,.4f}")
                 st_c3.success(f"TP: (+{levels['tp_pct']:.2f}%) {levels['tp']:,.4f}")
+                
                 st.caption(f"RR: {levels['rr']}  |  ADX: {res['adx']:.1f}  |  RSI: {res['rsi']:.1f}" if res['rsi'] else f"RR: {levels['rr']}  |  ADX: {res['adx']:.1f}")
 
-                if st.button("🚀 VALIDER ET SURVEILLER"):
+                st.write("---")
+                st.write("### 🛒 Mode d'entrée")
+                btn_col1, btn_col2 = st.columns(2)
+
+                # OPTION 1 : AU MARCHÉ (Prix actuel)
+                if btn_col1.button(f"🚀 MARCHÉ (@{res['prix']:,.4f})"):
+                    # Calcul du TP basé sur le prix actuel pour garder le même RR
+                    current_risk_pct = ((levels['sl'] - res['prix']) / res['prix']) * 100
+                    current_tp = res['prix'] + (abs(res['prix'] - levels['sl']) * levels['rr'])
+                    current_tp_pct = ((current_tp - res['prix']) / res['prix']) * 100
+
                     st.session_state['test_positions'][p] = {
-                        "symbol":   p,
-                        "entry":    levels['entry'],
-                        "tp":       levels['tp'],
-                        "sl":       levels['sl'],
-                        "tp_pct":   levels['tp_pct'],
-                        "sl_pct":   levels['risk_pct'],
+                        "symbol": p,
+                        "entry": res['prix'],
+                        "tp": current_tp,
+                        "sl": levels['sl'],
+                        "tp_pct": current_tp_pct,
+                        "sl_pct": current_risk_pct,
+                        "risk_pct": current_risk_pct,
+                        "rr": levels['rr'],
+                        "style": mode_actuel,
+                        "score": res['score'],
+                        "type_entree": "MARCHÉ",
+                        "time_full": datetime.now().strftime("%d/%m %H:%M:%S")
+                    }
+                    save_data(DB_FILE, st.session_state['test_positions'])
+                    st.rerun()
+
+                # OPTION 2 : LIMITE (Prix optimisé)
+                if btn_col2.button(f"⏳ LIMITE (@{levels['entry']:,.4f})"):
+                    st.session_state['test_positions'][p] = {
+                        "symbol": p,
+                        "entry": levels['entry'],
+                        "tp": levels['tp'],
+                        "sl": levels['sl'],
+                        "tp_pct": levels['tp_pct'],
+                        "sl_pct": levels['risk_pct'],
                         "risk_pct": levels['risk_pct'],
-                        "rr":       levels['rr'],
-                        "style":    mode_actuel,
-                        "score":    res['score'],
-                        "time_full":datetime.now().strftime("%d/%m %H:%M:%S"),
+                        "rr": levels['rr'],
+                        "style": mode_actuel,
+                        "score": res['score'],
+                        "type_entree": "LIMITE",
+                        "time_full": datetime.now().strftime("%d/%m %H:%M:%S")
                     }
                     save_data(DB_FILE, st.session_state['test_positions'])
                     st.rerun()
