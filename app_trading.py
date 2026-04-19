@@ -485,10 +485,10 @@ with tab_scan:
                             unsafe_allow_html=True
                         )
 
-        # --- FOCUS PAIRE (Mise à jour avec double choix d'entrée) ---
+    # Focus paire — style V7.7
     with col_focus:
         if 'active_p' in st.session_state:
-            p = st.session_state['active_p']
+            p        = st.session_state['active_p']
             res, err = get_market_analysis(p, mode_actuel)
 
             if err:
@@ -496,55 +496,30 @@ with tab_scan:
             elif res:
                 levels = compute_levels(res, mode_actuel)
                 st.header(f"💼 Analyse : {p}")
-                
-                # Affichage des indicateurs
-                st.caption(f"Score : {res['score']}/100 | HTF: {res['structure_htf']}")
-                
-                # Zone de décision
-                st.subheader("📍 Niveaux de Trading")
-                c1, c2, c3 = st.columns(3)
-                c1.error(f"STOP LOSS\n{levels['sl']:,.4f}")
-                c2.warning(f"PRIX OPTIMAL\n{levels['entry']:,.4f}")
-                c3.success(f"TARGET TP\n{levels['tp']:,.4f}")
+                st.caption(f"Score : {res['score']}/100  |  HTF ({res['htf']}) : {res['structure_htf']}  |  LTF ({res['ltf']}) : {res['structure_ltf']}")
 
-                st.write("---")
-                st.write("### 🛒 Comment souhaites-tu entrer ?")
-                btn_col1, btn_col2 = st.columns(2)
+                st.subheader("📊 Paramètres avec Risque %")
+                st_c1, st_c2, st_c3 = st.columns(3)
+                st_c1.error(  f"SL: ({levels['risk_pct']:.2f}%) {levels['sl']:,.4f}")
+                st_c2.warning(f"ENTREE: {levels['entry']:,.4f}")
+                st_c3.success(f"TP: (+{levels['tp_pct']:.2f}%) {levels['tp']:,.4f}")
+                st.caption(f"RR: {levels['rr']}  |  ADX: {res['adx']:.1f}  |  RSI: {res['rsi']:.1f}" if res['rsi'] else f"RR: {levels['rr']}  |  ADX: {res['adx']:.1f}")
 
-                # OPTION 1 : AU MARCHÉ (Prix actuel)
-                if btn_col1.button(f"🚀 ENTRÉE MARCHÉ ({res['prix']:,.4f})"):
-                    # On recalcule les niveaux basés sur le prix actuel
-                    risk = abs(res['prix'] - levels['sl'])
-                    new_tp = res['prix'] + (risk * levels['rr']) # On garde le même RR
-                    
+                if st.button("🚀 VALIDER ET SURVEILLER"):
                     st.session_state['test_positions'][p] = {
-                        "symbol": p,
-                        "entry": res['prix'], # Prix actuel
-                        "tp": new_tp,
-                        "sl": levels['sl'],
-                        "style": mode_actuel,
-                        "score": res['score'],
-                        "type_entree": "MARCHÉ",
-                        "time_full": datetime.now().strftime("%d/%m %H:%M:%S")
+                        "symbol":   p,
+                        "entry":    levels['entry'],
+                        "tp":       levels['tp'],
+                        "sl":       levels['sl'],
+                        "tp_pct":   levels['tp_pct'],
+                        "sl_pct":   levels['risk_pct'],
+                        "risk_pct": levels['risk_pct'],
+                        "rr":       levels['rr'],
+                        "style":    mode_actuel,
+                        "score":    res['score'],
+                        "time_full":datetime.now().strftime("%d/%m %H:%M:%S"),
                     }
                     save_data(DB_FILE, st.session_state['test_positions'])
-                    st.success(f"Entrée immédiate validée sur {p} !")
-                    st.rerun()
-
-                # OPTION 2 : LIMITE (Prix optimisé par l'algorithme)
-                if btn_col2.button(f"⏳ ORDRE LIMITE ({levels['entry']:,.4f})"):
-                    st.session_state['test_positions'][p] = {
-                        "symbol": p,
-                        "entry": levels['entry'], # Prix SMC/Range
-                        "tp": levels['tp'],
-                        "sl": levels['sl'],
-                        "style": mode_actuel,
-                        "score": res['score'],
-                        "type_entree": "LIMITE",
-                        "time_full": datetime.now().strftime("%d/%m %H:%M:%S")
-                    }
-                    save_data(DB_FILE, st.session_state['test_positions'])
-                    st.info(f"Ordre limite placé sur {p}. En attente du prix...")
                     st.rerun()
 
 # ============================================================
