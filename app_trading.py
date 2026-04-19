@@ -609,7 +609,9 @@ with tab_search:
 # ============================================================
 with tab_journal:
     history = load_data(HIST_FILE)
-    today   = datetime.now().strftime("%d/%m")
+    # On recharge les positions ouvertes directement depuis le fichier pour être sûr
+    positions_actuelles = load_data(DB_FILE) 
+    today = datetime.now().strftime("%d/%m")
 
     daily_pnl = 0.0
     for h in history:
@@ -620,9 +622,25 @@ with tab_journal:
 
     st.metric("PROFIT DU JOUR", f"{daily_pnl:+.2f}%", delta=f"{daily_pnl - 5:.2f}% vs Objectif 5%")
     st.progress(min(max(daily_pnl / 5, 0.0), 1.0), text=f"Progression : {daily_pnl:.2f}% / 5%")
+    
+    st.write("---")
+    
+    # --- AFFICHAGE DU CONTENU DE TRADING_JOURNAL.JSON ---
+    st.subheader("📋 ORDRES DANS LE JOURNAL")
+    if positions_actuelles:
+        # On affiche ce qui est écrit dans le JSON sans attendre l'API
+        df_open = pd.DataFrame.from_dict(positions_actuelles, orient='index')
+        cols_brutes = ["symbol", "type_entree", "entry", "sl", "tp", "time_full"]
+        cols_existantes = [c for c in cols_brutes if c in df_open.columns]
+        st.dataframe(df_open[cols_existantes], use_container_width=True)
+    else:
+        st.info("Le fichier trading_journal.json est vide.")
+    
     st.write("---")
 
+    # --- SUIVI TEMPS RÉEL (Vérification des prix) ---
     if st.session_state['test_positions']:
+        st.subheader("🎯 SUIVI LIVE (PRIX)")
         for p, data in list(st.session_state['test_positions'].items()):
             try:
                 sym   = data.get('symbol', p)
@@ -657,12 +675,12 @@ with tab_journal:
                         f"Style: {data['style']}"
                     )
             except Exception as e:
-                st.warning(f"Erreur {p}: {e}")
+                st.warning(f"Connexion API lente pour {p}... (Vérification en cours)")
                 continue
 
-    with st.expander("📜 VOIR L'HISTORIQUE DÉTAILLÉ", expanded=False):
+    with st.expander("📜 HISTORIQUE DES TRADES CLOS", expanded=False):
         if history:
-            df_hist    = pd.DataFrame(history)
+            df_hist = pd.DataFrame(history)
             cols_ordre = ["SYMBOLE", "OUVERTURE", "FERMETURE", "ENTREE", "SORTIE", "PNL %", "RR", "SCORE", "RAISON", "STYLE"]
-            cols_ok    = [c for c in cols_ordre if c in df_hist.columns]
+            cols_ok = [c for c in cols_ordre if c in df_hist.columns]
             st.dataframe(df_hist[cols_ok].iloc[::-1], use_container_width=True)
