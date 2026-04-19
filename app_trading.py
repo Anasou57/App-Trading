@@ -685,4 +685,3 @@ with tab_journal:
             cols_ordre = ["SYMBOLE", "OUVERTURE", "FERMETURE", "ENTREE", "SORTIE", "PNL %", "RR", "SCORE", "RAISON", "STYLE"]
             cols_ok = [c for c in cols_ordre if c in df_hist.columns]
             st.dataframe(df_hist[cols_ok].iloc[::-1], use_container_width=True)
- Garde le style visu et modifie que la partie concernée et rajoute longlet a ce code
