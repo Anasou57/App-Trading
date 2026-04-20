@@ -96,13 +96,5 @@
         "score": 36,
         "type_entree": "MARCH\u00c9",
         "time_full": "20/04 11:32:30"
-    },
-    "CFG/USDT": {
-        "symbol": "CFG/USDT",
-        "entry": 0.2627,
-        "sl": 0.25340839295151996,
-        "tp": 0.2789603123348401,
-	"type_entree": "MARCH\u00c9",
-        "time_full": "20/04 13:03"
     }
 }
