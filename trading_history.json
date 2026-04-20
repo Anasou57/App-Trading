@@ -40,5 +40,35 @@
         "SORTIE": "4.0157",
         "pnl": 30.93,
         "date": "2026-04-17"
+    },
+    {
+        "SYMBOLE": "MON/USDT",
+        "OUVERTURE": "20/04 09:54:30",
+        "FERMETURE": "20/04 12:10:02",
+        "PNL %": "+3.52%",
+        "RAISON": "TP \u2705",
+        "STYLE": "SCALPING (5m)",
+        "ENTREE": "0.0309",
+        "SORTIE": "0.0320"
+    },
+    {
+        "SYMBOLE": "FIL/USDT",
+        "OUVERTURE": "20/04 00:18:14",
+        "FERMETURE": "20/04 07:25:02",
+        "PNL %": "+2.00%",
+        "RAISON": "TP \u2705",
+        "STYLE": "SCALPING (5m)",
+        "ENTREE": "0.9085",
+        "SORTIE": "0.9267"
+    },
+    {
+        "SYMBOLE": "SIREN/USDT",
+        "OUVERTURE": "19/04 22:44:32",
+        "FERMETURE": "20/04 00:15:02",
+        "PNL %": "-4.57%",
+        "RAISON": "SL \u274c",
+        "STYLE": "SCALPING (5m)",
+        "ENTREE": "0.6831",
+        "SORTIE": "0.6519"
     }
 ]
