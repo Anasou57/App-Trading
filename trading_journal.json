@@ -1,12 +1,108 @@
 {
-    "MOVR/USDT": {
-        "entry": 3.067,
-        "tp": 4.01568,
-        "sl": 2.64536,
-        "time": "11:48",
-        "time_full": "17/04 11:48:00",
+    "LINK/USDT": {
+        "symbol": "LINK/USDT",
+        "entry": 9.26,
+        "tp": 9.445356837218078,
+        "sl": 9.187594985461688,
+        "tp_pct": 2.001693706458731,
+        "sl_pct": -0.7819116040854397,
+        "risk_pct": -0.7819116040854397,
+        "rr": 2.56,
         "style": "SCALPING (5m)",
-        "type": "CHASSE"
+        "score": 63,
+        "type_entree": "MARCH\u00c9",
+        "time_full": "20/04 11:30:33"
     },
-    
+    "ENJ/USDT": {
+        "symbol": "ENJ/USDT",
+        "entry": 0.05963,
+        "tp": 0.061905680011622374,
+        "sl": 0.058546342851608396,
+        "tp_pct": 3.816334079527707,
+        "sl_pct": -1.8173019426322428,
+        "risk_pct": -1.8173019426322428,
+        "rr": 2.1,
+        "style": "SCALPING (5m)",
+        "score": 68,
+        "type_entree": "MARCH\u00c9",
+        "time_full": "20/04 11:30:54"
+    },
+    "TIA/USDT": {
+        "symbol": "TIA/USDT",
+        "entry": 0.3882,
+        "tp": 0.39596086202183584,
+        "sl": 0.3845564028066498,
+        "tp_pct": 1.999191659411604,
+        "sl_pct": -0.9385876335265759,
+        "risk_pct": -0.9385876335265759,
+        "rr": 2.13,
+        "style": "SCALPING (5m)",
+        "score": 68,
+        "type_entree": "MARCH\u00c9",
+        "time_full": "20/04 11:31:36"
+    },
+    "ARKM/USDT": {
+        "symbol": "ARKM/USDT",
+        "entry": 0.1331,
+        "tp": 0.1370085706423615,
+        "sl": 0.13123877588458976,
+        "tp_pct": 2.9365669739755806,
+        "sl_pct": -1.3983652257026533,
+        "risk_pct": -1.3983652257026533,
+        "rr": 2.1,
+        "style": "SCALPING (5m)",
+        "score": 68,
+        "type_entree": "MARCH\u00c9",
+        "time_full": "20/04 11:31:46"
+    },
+    "APT/USDT": {
+        "symbol": "APT/USDT",
+        "entry": 0.934,
+        "tp": 0.9526983798001998,
+        "sl": 0.9269705339096994,
+        "tp_pct": 2.001967858693761,
+        "sl_pct": -0.7526194957495331,
+        "risk_pct": -0.7526194957495331,
+        "rr": 2.66,
+        "style": "SCALPING (5m)",
+        "score": 63,
+        "type_entree": "MARCH\u00c9",
+        "time_full": "20/04 11:31:59"
+    },
+    "UNI/USDT": {
+        "symbol": "UNI/USDT",
+        "entry": 3.272,
+        "tp": 3.337434269952351,
+        "sl": 3.2535678112810276,
+        "tp_pct": 1.999824876294357,
+        "sl_pct": -0.5633309510688335,
+        "risk_pct": -0.5633309510688335,
+        "rr": 3.55,
+        "style": "SCALPING (5m)",
+        "score": 53,
+        "type_entree": "MARCH\u00c9",
+        "time_full": "20/04 11:32:13"
+    },
+    "DOT/USDT": {
+        "symbol": "DOT/USDT",
+        "entry": 1.258,
+        "tp": 1.28315277080344,
+        "sl": 1.250772192297862,
+        "tp_pct": 1.9994253420858528,
+        "sl_pct": -0.5745475120936354,
+        "risk_pct": -0.5745475120936354,
+        "rr": 3.48,
+        "style": "SCALPING (5m)",
+        "score": 36,
+        "type_entree": "MARCH\u00c9",
+        "time_full": "20/04 11:32:30"
+    },
+    "CFG/USDT": {
+        "symbol": "CFG/USDT",
+        "entry": 0.2627,
+        "sl": 0.25340839295151996,
+        "tp": 0.2789603123348401,
+	"type_entree": "MARCH\u00c9",
+        "time_full": "20/04 13:03"
+    }
 }
