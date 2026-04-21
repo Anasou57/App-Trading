@@ -864,20 +864,53 @@ with tab_scan:
                     else:
                         st.info(f"📌 Setup CONSERVATEUR — TP cible +{tp_target}% — Sortie dès atteint")
 
-                    if st.button("🚀 VALIDER ET SURVEILLER"):
+                    st.write("---")
+                    st.caption("**Choisir le type d'entrée :**")
+                    btn1, btn2 = st.columns(2)
+
+                    # ── Entrée au prix du marché ──
+                    if btn1.button("⚡ ENTRÉE MARCHÉ", key="btn_market", help=f"Entrer maintenant au prix actuel : {levels['prix_actuel']:,.4f}"):
+                        entry_used  = levels['prix_actuel']
+                        risk_used   = entry_used - levels['sl']
+                        if risk_used <= 0: risk_used = entry_used * 0.012
+                        tp_used     = entry_used + risk_used * 2.0
+                        tp_used     = max(tp_used, entry_used * (1 + tp_target / 100))
+                        tp_pct_used = ((tp_used - entry_used) / entry_used) * 100
+                        rr_used     = round(abs(tp_used - entry_used) / abs(risk_used), 2)
                         st.session_state['test_positions'][p] = {
-                            "symbol":     p,
-                            "entry":      levels['entry'],
-                            "tp":         levels['tp'],
-                            "sl":         levels['sl'],
-                            "tp_pct":     levels['tp_pct'],
-                            "risk_pct":   levels['risk_pct'],
-                            "rr":         levels['rr'],
-                            "style":      mode_actuel,
-                            "score":      res['score'],
-                            "direction":  res['direction'],
-                            "confidence": conf_level,
-                            "time_full":  datetime.now().strftime("%d/%m %H:%M:%S"),
+                            "symbol":        p,
+                            "entry":         entry_used,
+                            "entry_type":    "MARCHÉ",
+                            "tp":            tp_used,
+                            "sl":            levels['sl'],
+                            "tp_pct":        tp_pct_used,
+                            "risk_pct":      ((levels['sl'] - entry_used) / entry_used) * 100,
+                            "rr":            rr_used,
+                            "style":         mode_actuel,
+                            "score":         res['score'],
+                            "direction":     res['direction'],
+                            "confidence":    conf_level,
+                            "time_full":     datetime.now().strftime("%d/%m %H:%M:%S"),
+                        }
+                        save_data(DB_FILE, st.session_state['test_positions'])
+                        st.rerun()
+
+                    # ── Entrée au prix recommandé ──
+                    if btn2.button("🎯 ENTRÉE RECOMMANDÉE", key="btn_recommended", help=f"Attendre le prix recommandé : {levels['entry']:,.4f}"):
+                        st.session_state['test_positions'][p] = {
+                            "symbol":        p,
+                            "entry":         levels['entry'],
+                            "entry_type":    "RECOMMANDÉE",
+                            "tp":            levels['tp'],
+                            "sl":            levels['sl'],
+                            "tp_pct":        levels['tp_pct'],
+                            "risk_pct":      levels['risk_pct'],
+                            "rr":            levels['rr'],
+                            "style":         mode_actuel,
+                            "score":         res['score'],
+                            "direction":     res['direction'],
+                            "confidence":    conf_level,
+                            "time_full":     datetime.now().strftime("%d/%m %H:%M:%S"),
                         }
                         save_data(DB_FILE, st.session_state['test_positions'])
                         st.rerun()
@@ -926,10 +959,41 @@ with tab_search:
             if res['direction'] == "SKIP":
                 st.warning(f"⏭️ Direction SKIP — bull={res['bull_pts']} bear={res['bear_pts']} — setup non recommandé")
 
-            if st.button(f"🚀 SURVEILLER {p_full}", key="btn_add_manual"):
+            st.write("---")
+            st.caption("**Choisir le type d'entrée :**")
+            sb1, sb2 = st.columns(2)
+
+            if sb1.button(f"⚡ ENTRÉE MARCHÉ", key="btn_market_search", help=f"Prix actuel : {levels['prix_actuel']:,.4f}"):
+                entry_used  = levels['prix_actuel']
+                risk_used   = entry_used - levels['sl']
+                if risk_used <= 0: risk_used = entry_used * 0.012
+                tp_used     = entry_used + risk_used * 2.0
+                tp_used     = max(tp_used, entry_used * (1 + tp_target / 100))
+                tp_pct_used = ((tp_used - entry_used) / entry_used) * 100
+                rr_used     = round(abs(tp_used - entry_used) / abs(risk_used), 2)
+                st.session_state['test_positions'][p_full] = {
+                    "symbol":     p_full,
+                    "entry":      entry_used,
+                    "entry_type": "MARCHÉ",
+                    "tp":         tp_used,
+                    "sl":         levels['sl'],
+                    "tp_pct":     tp_pct_used,
+                    "risk_pct":   ((levels['sl'] - entry_used) / entry_used) * 100,
+                    "rr":         rr_used,
+                    "style":      mode_actuel,
+                    "score":      res['score'],
+                    "direction":  res['direction'],
+                    "confidence": conf_level,
+                    "time_full":  datetime.now().strftime("%d/%m %H:%M:%S"),
+                }
+                save_data(DB_FILE, st.session_state['test_positions'])
+                st.rerun()
+
+            if sb2.button(f"🎯 ENTRÉE RECOMMANDÉE", key="btn_reco_search", help=f"Prix recommandé : {levels['entry']:,.4f}"):
                 st.session_state['test_positions'][p_full] = {
                     "symbol":     p_full,
                     "entry":      levels['entry'],
+                    "entry_type": "RECOMMANDÉE",
                     "tp":         levels['tp'],
                     "sl":         levels['sl'],
                     "tp_pct":     levels['tp_pct'],
@@ -1014,7 +1078,7 @@ with tab_journal:
                         st.rerun()
                     st.caption(
                         f"📅 {data.get('time_full', 'N/A')}  |  "
-                        f"Entrée: {data['entry']:,.4f}  |  "
+                        f"Entrée {data.get('entry_type','')}: {data['entry']:,.4f}  |  "
                         f"TP: {data['tp']:,.4f} (+{data.get('tp_pct',0):.2f}%)  |  "
                         f"SL: {data['sl']:,.4f} ({data.get('risk_pct',0):.2f}%)  |  "
                         f"RR: {data.get('rr','N/A')}  |  Score: {data.get('score','N/A')}"
