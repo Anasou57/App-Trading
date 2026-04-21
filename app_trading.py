@@ -1003,35 +1003,22 @@ with tab_journal:
                 conf_icon = "🔥" if conf == "HAUTE" else "✅" if conf == "MOYEN" else "📌"
 
                 with st.expander(f"📊 {conf_icon} {sym} | P&L live: {prog:+.2f}%", expanded=True):
-                    # Ligne 1 : date/heure + confiance
-                    st.caption(f"📅 Ouvert le {data.get('time_full', 'N/A')}  |  Confiance: {conf}  |  Style: {data['style']}")
-                    st.write("---")
-
-                    # Ligne 2 : 4 métriques principales
-                    j1, j2, j3, j4 = st.columns(4)
-                    j1.metric("PRIX ACTUEL",  f"{cur_p:,.4f}",          f"{prog:+.2f}%")
-                    j2.metric("PRIX ENTRÉE",  f"{data['entry']:,.4f}")
-                    j3.metric("TAKE PROFIT",  f"{data['tp']:,.4f}",      f"+{data.get('tp_pct',0):.2f}%")
-                    j4.metric("STOP LOSS",    f"{data['sl']:,.4f}",      f"{data.get('risk_pct',0):.2f}%")
-
-                    # Ligne 3 : distance restante jusqu'au TP et SL
-                    dist_tp  = ((data['tp'] - cur_p) / cur_p) * 100
-                    dist_sl  = ((cur_p - data['sl']) / cur_p) * 100
-                    st.caption(
-                        f"Distance TP : {dist_tp:+.2f}%  |  "
-                        f"Distance SL : {dist_sl:.2f}%  |  "
-                        f"RR: {data.get('rr','N/A')}  |  "
-                        f"Score: {data.get('score','N/A')}"
-                    )
-
-                    # Bouton vendre
-                    if st.button("💰 VENDRE", key=f"sell_{p}"):
+                    c1, c2 = st.columns([3, 1])
+                    c1.metric("PRIX ACTUEL", f"{cur_p:,.4f}", f"{prog:+.2f}%")
+                    if c2.button("💰 VENDRE", key=f"sell_{p}"):
                         pnl_manuel = ((cur_p - data['entry']) / data['entry']) * 100
                         raison     = "MANUEL ✅" if pnl_manuel >= 0 else "MANUEL ❌"
                         archive_position(sym, data, cur_p, raison)
                         del st.session_state['test_positions'][p]
                         save_data(DB_FILE, st.session_state['test_positions'])
                         st.rerun()
+                    st.caption(
+                        f"📅 {data.get('time_full', 'N/A')}  |  "
+                        f"Entrée: {data['entry']:,.4f}  |  "
+                        f"TP: {data['tp']:,.4f} (+{data.get('tp_pct',0):.2f}%)  |  "
+                        f"SL: {data['sl']:,.4f} ({data.get('risk_pct',0):.2f}%)  |  "
+                        f"RR: {data.get('rr','N/A')}  |  Score: {data.get('score','N/A')}"
+                    )
             except Exception as e:
                 st.warning(f"Erreur {p}: {e}")
 
